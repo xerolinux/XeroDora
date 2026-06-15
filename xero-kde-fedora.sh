@@ -20,13 +20,13 @@ PURPLE='\033[0;35m'
 CYAN='\033[0;36m'
 NC='\033[0m'
 
+RULE="════════════════════════════════════════════════════"
+
 print_header() {
     clear
-    echo -e "${PURPLE}╔════════════════════════════════════════════════╗${NC}"
-    echo -e "${PURPLE}║                                                ║${NC}"
-    echo -e "${PURPLE}║${CYAN}  ✨ XeroLinux KDE Plasma Installer (Fedora) ✨ ${PURPLE}║${NC}"
-    echo -e "${PURPLE}║                                                ║${NC}"
-    echo -e "${PURPLE}╚════════════════════════════════════════════════╝${NC}"
+    echo -e "${PURPLE}${RULE}${NC}"
+    echo -e "    ${CYAN}✨ XeroLinux KDE Plasma Installer (Fedora) ✨${NC}"
+    echo -e "${PURPLE}${RULE}${NC}"
     echo ""
 }
 
@@ -35,16 +35,71 @@ print_success() { echo -e "${GREEN}✓${NC} $1"; }
 print_error()   { echo -e "${RED}✗${NC} $1"; sleep 1; }
 print_warning() { echo -e "${YELLOW}⚠${NC} $1"; sleep 1; }
 
-# ── Section header ────────────────────────────────────────────────────────────
-# print_phase <title> [tip] — plain banner, no screen clear (output scrolls
-# normally so nothing is lost). Optional tip prints under the title.
+# ── Phase header (sticky/pinned) ──────────────────────────────────────────────
+# On a real terminal the phase header is pinned to the top rows via a DECSTBM
+# scroll region; install output scrolls underneath it. When stdout is not a TTY
+# (e.g. logged to a file) it degrades to a plain printed banner.
+
+HEADER_ROWS=4          # rows reserved at the top for the pinned header
+STICKY=0               # 1 once the scroll region is active
+TERM_LINES=24
+HEADER_INNER=54        # inner width of the header box
+
+# Enable the pinned-header mode (called once, before the first phase).
+term_init_sticky() {
+    [[ -t 1 ]] || return 0
+    TERM_LINES="$(tput lines 2>/dev/null || echo 24)"
+    [[ "$TERM_LINES" -lt $((HEADER_ROWS + 4)) ]] && return 0   # tiny term → skip
+    STICKY=1
+    clear
+    # Reserve the top HEADER_ROWS; scroll region = rest of the screen.
+    printf '\033[%d;%dr' "$((HEADER_ROWS + 1))" "$TERM_LINES"
+    printf '\033[%d;1H' "$((HEADER_ROWS + 1))"
+}
+
+# Restore the terminal (full-screen scrolling, cursor at bottom). Idempotent.
+term_reset() {
+    [[ "$STICKY" == 1 ]] || return 0
+    printf '\033[r'                       # reset scroll region
+    printf '\033[%d;1H' "$TERM_LINES"     # park cursor at the bottom
+    STICKY=0
+}
+trap term_reset EXIT INT TERM
+
+# Draw the pinned header in the reserved rows, then clear + park the cursor in
+# the scroll region so the next phase starts with a fresh area beneath it.
+draw_sticky_header() {
+    local title="$1" tip="${2:-}"
+    local bar t
+    bar="$(printf '═%.0s' $(seq 1 "$HEADER_INNER"))"
+    # content = leading space + "▶ " (3 cols) + title padded to fill the rest
+    printf -v t '%-*s' "$((HEADER_INNER - 3))" "${title:0:$((HEADER_INNER - 3))}"
+
+    printf '\033[s'                        # save cursor (current scroll pos)
+    printf '\033[1;1H'                     # top-left
+    echo -e "\033[2K${PURPLE}╔${bar}╗${NC}"
+    echo -e "\033[2K${PURPLE}║${NC} ${CYAN}▶ ${t}${NC}${PURPLE}║${NC}"
+    echo -e "\033[2K${PURPLE}╚${bar}╝${NC}"
+    if [[ -n "$tip" ]]; then
+        echo -e "\033[2K  ${YELLOW}${tip}${NC}"
+    else
+        printf '\033[2K\n'
+    fi
+    printf '\033[u'                        # restore cursor
+}
+
+# print_phase <title> [tip]
 print_phase() {
-    echo ""
-    echo -e "${PURPLE}════════════════════════════════════════════════════════${NC}"
-    echo -e "${PURPLE}▶ ${CYAN}$1${NC}"
-    [[ -n "${2:-}" ]] && echo -e "  ${YELLOW}$2${NC}"
-    echo -e "${PURPLE}════════════════════════════════════════════════════════${NC}"
-    echo ""
+    if [[ "$STICKY" == 1 ]]; then
+        draw_sticky_header "$1" "${2:-}"
+    else
+        echo ""
+        echo -e "${PURPLE}════════════════════════════════════════════════════════${NC}"
+        echo -e "${PURPLE}▶ ${CYAN}$1${NC}"
+        [[ -n "${2:-}" ]] && echo -e "  ${YELLOW}$2${NC}"
+        echo -e "${PURPLE}════════════════════════════════════════════════════════${NC}"
+        echo ""
+    fi
 }
 
 # ── Privilege handling ────────────────────────────────────────────────────────
@@ -183,12 +238,34 @@ install_dnf_group() {
 # ── Flatpak helpers ───────────────────────────────────────────────────────────
 
 setup_flatpak() {
+    print_phase "Setting up Flatpak (Flathub source)"
     print_step "Setting up Flatpak + Flathub..."
     $SUDO_CMD dnf install -y flatpak || print_warning "flatpak install failed"
+
+    # Add the FULL Flathub remote (system-wide).
     $SUDO_CMD flatpak remote-add --if-not-exists flathub \
-        https://flathub.org/repo/flathub.flatpakrepo 2>/dev/null \
-        && print_success "Flathub remote ready!" \
+        https://flathub.org/repo/flathub.flatpakrepo \
+        && print_success "Flathub remote added!" \
         || print_warning "Could not add Flathub remote (non-critical)"
+
+    # Fedora ships its Flathub pre-filtered to a subset — drop the filter and
+    # make sure it's enabled so the complete Flathub catalog is available.
+    $SUDO_CMD flatpak remote-modify --enable flathub 2>/dev/null || true
+    $SUDO_CMD flatpak remote-modify --no-filter flathub 2>/dev/null || true
+
+    # Disable Fedora's own flatpak remotes (the OCI "fedora" ones) — an inferior,
+    # half-maintained subset. Everything should come from Flathub instead.
+    print_step "Disabling Fedora flatpak remotes..."
+    for r in fedora fedora-testing; do
+        if $SUDO_CMD flatpak remotes --system 2>/dev/null | awk '{print $1}' | grep -qx "$r"; then
+            $SUDO_CMD flatpak remote-modify --disable "$r" 2>/dev/null \
+                || $SUDO_CMD flatpak remote-delete --force "$r" 2>/dev/null
+            print_success "Fedora flatpak remote '$r' disabled."
+        fi
+    done
+
+    # Pin Flathub as the preferred source (lower number = higher priority).
+    $SUDO_CMD flatpak remote-modify --prio=1 flathub 2>/dev/null || true
     echo ""
 }
 
@@ -699,14 +776,14 @@ setup_login_manager() {
 
 show_completion() {
     print_header
-    echo -e "${PURPLE}╔════════════════════════════════════════════════╗${NC}"
-    echo -e "${PURPLE}║${GREEN}     🎉 Installation Complete! 🎉              ${PURPLE}║${NC}"
-    echo -e "${PURPLE}╠════════════════════════════════════════════════╣${NC}"
-    echo -e "${PURPLE}║${NC}  Your KDE Plasma desktop is ready!            ${PURPLE}║${NC}"
-    echo -e "${PURPLE}║${NC}  Reboot to start using it.                    ${PURPLE}║${NC}"
-    echo -e "${PURPLE}║${NC}                                               ${PURPLE}║${NC}"
-    echo -e "${PURPLE}║${NC}  Command: ${YELLOW}sudo systemctl reboot${NC}              ${PURPLE}║${NC}"
-    echo -e "${PURPLE}╚════════════════════════════════════════════════╝${NC}"
+    echo -e "${GREEN}${RULE}${NC}"
+    echo -e "            ${GREEN}🎉 Installation Complete! 🎉${NC}"
+    echo -e "${GREEN}${RULE}${NC}"
+    echo ""
+    echo -e "  ${CYAN}Your KDE Plasma desktop is ready.${NC}"
+    echo -e "  Reboot to start using it:"
+    echo ""
+    echo -e "    ${YELLOW}sudo systemctl reboot${NC}"
     echo ""
 }
 
@@ -716,6 +793,9 @@ setup_sudo
 check_fedora
 prompt_user
 customization_prompts
+
+term_init_sticky      # pin phase headers to the top; output scrolls below
+
 tune_dnf
 enable_rpmfusion
 setup_flatpak
@@ -726,6 +806,8 @@ install_user_packages
 finalize_system
 setup_fastfetch_hook
 setup_login_manager
+
+term_reset            # restore normal full-screen scrolling
 show_completion
 
 # Self-destruct only when run as a downloaded file (not via curl | bash, where
