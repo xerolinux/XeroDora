@@ -35,26 +35,15 @@ print_success() { echo -e "${GREEN}✓${NC} $1"; }
 print_error()   { echo -e "${RED}✗${NC} $1"; sleep 1; }
 print_warning() { echo -e "${YELLOW}⚠${NC} $1"; sleep 1; }
 
-# ── Progress ──────────────────────────────────────────────────────────────────
-# Each major phase calls progress_header to show "Step N/TOTAL" + a bar.
-TOTAL_STEPS=9
-CURRENT_STEP=0
-
-# progress_header <title> [tip] — tip (if given) prints above the progress bar.
-progress_header() {
-    CURRENT_STEP=$((CURRENT_STEP + 1))
-    print_header
-    [[ -n "${2:-}" ]] && { echo -e "${YELLOW}$2${NC}"; echo ""; }
-    local width=40
-    local filled=$((CURRENT_STEP * width / TOTAL_STEPS))
-    local empty=$((width - filled))
-    local pct=$((CURRENT_STEP * 100 / TOTAL_STEPS))
-    local bar=""
-    local i
-    for ((i = 0; i < filled; i++)); do bar+="█"; done
-    for ((i = 0; i < empty; i++)); do bar+="░"; done
-    echo -e "${PURPLE}[${GREEN}${bar}${PURPLE}]${NC} ${CYAN}${pct}%${NC}  ${YELLOW}Step ${CURRENT_STEP}/${TOTAL_STEPS}${NC}"
+# ── Section header ────────────────────────────────────────────────────────────
+# print_phase <title> [tip] — plain banner, no screen clear (output scrolls
+# normally so nothing is lost). Optional tip prints under the title.
+print_phase() {
+    echo ""
+    echo -e "${PURPLE}════════════════════════════════════════════════════════${NC}"
     echo -e "${PURPLE}▶ ${CYAN}$1${NC}"
+    [[ -n "${2:-}" ]] && echo -e "  ${YELLOW}$2${NC}"
+    echo -e "${PURPLE}════════════════════════════════════════════════════════${NC}"
     echo ""
 }
 
@@ -123,7 +112,7 @@ install_group() {
     local pkgs=("$@")
 
     print_step "[$group_name] Installing ${#pkgs[@]} packages..."
-    if $SUDO_CMD dnf install -y "${pkgs[@]}" 2>/dev/null; then
+    if $SUDO_CMD dnf install -y "${pkgs[@]}"; then
         print_success "[$group_name] Done!"
         echo ""
         return 0
@@ -132,7 +121,7 @@ install_group() {
     print_warning "[$group_name] Bulk install failed — retrying individually..."
     local failed=() installed=0
     for pkg in "${pkgs[@]}"; do
-        if $SUDO_CMD dnf install -y "$pkg" 2>/dev/null; then
+        if $SUDO_CMD dnf install -y "$pkg"; then
             (( installed++ )) || true
         else
             failed+=("$pkg")
@@ -152,7 +141,7 @@ install_group_required() {
     local pkgs=("$@")
 
     print_step "[$group_name] Installing ${#pkgs[@]} packages (required)..."
-    if $SUDO_CMD dnf install -y "${pkgs[@]}" 2>/dev/null; then
+    if $SUDO_CMD dnf install -y "${pkgs[@]}"; then
         print_success "[$group_name] Done!"
         echo ""
         return 0
@@ -161,7 +150,7 @@ install_group_required() {
     print_warning "[$group_name] Bulk install failed — retrying individually..."
     local failed=() installed=0
     for pkg in "${pkgs[@]}"; do
-        if $SUDO_CMD dnf install -y "$pkg" 2>/dev/null; then
+        if $SUDO_CMD dnf install -y "$pkg"; then
             (( installed++ )) || true
         else
             failed+=("$pkg")
@@ -183,7 +172,7 @@ install_group_required() {
 install_dnf_group() {
     local g="$1"
     print_step "Installing dnf group: $g ..."
-    if $SUDO_CMD dnf group install -y "$g" 2>/dev/null; then
+    if $SUDO_CMD dnf group install -y "$g"; then
         print_success "Group '$g' installed!"
     else
         print_warning "Group '$g' failed or not found — continuing."
@@ -195,7 +184,7 @@ install_dnf_group() {
 
 setup_flatpak() {
     print_step "Setting up Flatpak + Flathub..."
-    $SUDO_CMD dnf install -y flatpak 2>/dev/null || print_warning "flatpak install failed"
+    $SUDO_CMD dnf install -y flatpak || print_warning "flatpak install failed"
     $SUDO_CMD flatpak remote-add --if-not-exists flathub \
         https://flathub.org/repo/flathub.flatpakrepo 2>/dev/null \
         && print_success "Flathub remote ready!" \
@@ -210,7 +199,7 @@ flatpak_install() {
     print_step "[Flatpak] Installing ${#apps[@]} app(s)..."
     local failed=() installed=0
     for app in "${apps[@]}"; do
-        if $SUDO_CMD flatpak install -y --noninteractive flathub "$app" 2>/dev/null; then
+        if $SUDO_CMD flatpak install -y --noninteractive flathub "$app"; then
             (( installed++ )) || true
         else
             failed+=("$app")
@@ -280,19 +269,21 @@ set_dnf_opt() {
 }
 
 tune_dnf() {
-    progress_header "Tuning dnf (fastest mirrors, 25 parallel downloads)"
+    print_phase "Tuning dnf (fastest mirrors, 20 parallel downloads)"
     print_step "Patching /etc/dnf/dnf.conf..."
     $SUDO_CMD touch /etc/dnf/dnf.conf 2>/dev/null || true
-    set_dnf_opt max_parallel_downloads 25
+    # librepo (dnf5) hard-caps parallel downloads at 20 — higher = "Bad value
+    # of LRO_MAXPARALLELDOWNLOADS" and all metadata fails.
+    set_dnf_opt max_parallel_downloads 20
     set_dnf_opt fastestmirror True
     set_dnf_opt defaultyes True
     set_dnf_opt keepcache False
-    print_success "dnf tuned — 25 parallel downloads, fastestmirror on."
+    print_success "dnf tuned — 20 parallel downloads, fastestmirror on."
     echo ""
 }
 
 enable_rpmfusion() {
-    progress_header "Enabling RPMFusion + system upgrade"
+    print_phase "Enabling RPMFusion + system upgrade"
     print_step "Enabling RPMFusion (free + nonfree)..."
     $SUDO_CMD dnf install -y \
         "https://mirrors.rpmfusion.org/free/fedora/rpmfusion-free-release-${FEDORA_VER}.noarch.rpm" \
@@ -302,28 +293,28 @@ enable_rpmfusion() {
     echo ""
 
     print_step "Updating system + core group..."
-    $SUDO_CMD dnf -y group upgrade core 2>/dev/null || true
+    $SUDO_CMD dnf -y group upgrade core || true
     $SUDO_CMD dnf -y upgrade --refresh || print_warning "System upgrade had errors — continuing."
     # appstream metadata for KDE Discover / Flatpak
-    $SUDO_CMD dnf install -y rpmfusion-free-appstream-data rpmfusion-nonfree-appstream-data 2>/dev/null || true
+    $SUDO_CMD dnf install -y rpmfusion-free-appstream-data rpmfusion-nonfree-appstream-data || true
     print_success "System updated!"
     echo ""
 }
 
 install_codecs() {
-    progress_header "Installing multimedia codecs"
+    print_phase "Installing multimedia codecs"
     print_step "Installing multimedia codecs..."
 
     # Swap the limited ffmpeg-free for the full RPMFusion ffmpeg
-    $SUDO_CMD dnf swap -y ffmpeg-free ffmpeg --allowerasing 2>/dev/null \
-        || $SUDO_CMD dnf install -y ffmpeg --allowerasing 2>/dev/null \
+    $SUDO_CMD dnf swap -y ffmpeg-free ffmpeg --allowerasing \
+        || $SUDO_CMD dnf install -y ffmpeg --allowerasing \
         || print_warning "ffmpeg swap/install had issues"
 
     # Multimedia + sound-and-video groups (full gstreamer plugin set)
     $SUDO_CMD dnf group install -y multimedia \
         --setopt="install_weak_deps=False" \
-        --exclude=PackageKit-gstreamer-plugin 2>/dev/null || true
-    $SUDO_CMD dnf group install -y sound-and-video 2>/dev/null || true
+        --exclude=PackageKit-gstreamer-plugin || true
+    $SUDO_CMD dnf group install -y sound-and-video || true
 
     install_group "Codecs" \
         gstreamer1-plugins-base gstreamer1-plugins-good gstreamer1-plugins-good-extras \
@@ -339,7 +330,7 @@ install_codecs() {
 # ── KDE Plasma + apps ─────────────────────────────────────────────────────────
 
 install_plasma() {
-    progress_header "Installing KDE Plasma desktop" \
+    print_phase "Installing KDE Plasma desktop" \
         "☕ This phase pulls a lot of packages and may take a while — sit back, grab a coffee."
     print_step "Installing KDE Plasma desktop..."
     # Fedora's curated Plasma group — guarantees a complete, existing package set.
@@ -372,7 +363,7 @@ install_plasma() {
 # ── Curated utilities + fonts (Fedora-mapped from the Arch set) ───────────────
 
 install_utilities() {
-    progress_header "Installing curated utilities & fonts"
+    print_phase "Installing curated utilities & fonts"
     print_step "Installing curated utilities..."
 
     install_group "System Utilities" \
@@ -573,7 +564,7 @@ customization_prompts() {
 }
 
 install_user_packages() {
-    progress_header "Installing your selected apps"
+    print_phase "Installing your selected apps"
     print_step "Installing user-selected apps..."
     echo ""
 
@@ -583,7 +574,7 @@ install_user_packages() {
     [[ -n "$NEED_LIBREWOLF" ]] && add_librewolf_repo
     [[ -n "$NEED_VSCODIUM" ]]  && add_vscodium_repo
     [[ -n "$NEED_BRAVE$NEED_VIVALDI$NEED_LIBREWOLF$NEED_VSCODIUM" ]] && \
-        $SUDO_CMD dnf makecache 2>/dev/null
+        $SUDO_CMD dnf makecache
 
     # shellcheck disable=SC2086
     [[ -n "$DNF_APPS" ]]  && install_group "Native Apps" $DNF_APPS
@@ -610,7 +601,7 @@ enable_service_if_available() {
 }
 
 finalize_system() {
-    progress_header "Finalizing system (services + boot target)"
+    print_phase "Finalizing system (services + boot target)"
     print_step "Finalizing system configuration... ⚙️"
     echo ""
 
@@ -633,7 +624,7 @@ finalize_system() {
 # ── fastfetch on terminal launch ──────────────────────────────────────────────
 # Append a fastfetch hook to the real user's ~/.bashrc. No other config touched.
 setup_fastfetch_hook() {
-    progress_header "Adding fastfetch to shell startup"
+    print_phase "Adding fastfetch to shell startup"
     print_step "Hooking fastfetch into ~/.bashrc..."
 
     # Determine the real (non-root) user
@@ -671,7 +662,7 @@ setup_fastfetch_hook() {
 # ── Plasma Login Manager + Breeze Dark default ────────────────────────────────
 
 setup_login_manager() {
-    progress_header "Setting up Plasma Login Manager + Breeze Dark"
+    print_phase "Setting up Plasma Login Manager + Breeze Dark"
     print_step "Installing plasma-login-manager..."
     $SUDO_CMD dnf install -y plasma-login-manager \
         || { print_error "Failed to install plasma-login-manager!"; exit 1; }

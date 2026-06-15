@@ -15,6 +15,7 @@ Works as root or with `sudo`.
 
 - RPMFusion (free + nonfree) + Flathub enabled
 - KDE Plasma desktop (vanilla, Breeze Dark by default)
+- Faster dnf (20 parallel downloads, fastest mirrors)
 - Multimedia codecs that just work
 - A handy set of utilities, fonts and dev tools
 - An optional menu to pick extra apps (browsers, chat, editors, etc.)
