@@ -2,11 +2,12 @@
 
 # XeroLinux KDE Plasma Installer — Fedora port v1.0
 # Run from TTY after a minimal/Server Fedora install, or via:
-#   curl -fsSL https://raw.githubusercontent.com/<user>/FedInstall/main/xero-kde-fedora.sh | bash
+#   curl -fsSL https://raw.githubusercontent.com/DarkXero-dev/FedoraCrap/main/xero-kde-fedora.sh | bash
 #
 # Enables RPMFusion (free + nonfree), installs KDE Plasma, multimedia codecs,
 # a curated app/utility set, optional user-selected apps (native rpm where an
-# official repo exists, Flatpak otherwise), and SDDM with the XeroDark theme.
+# official repo exists, Flatpak otherwise), and the Plasma Login Manager. Result
+# is a vanilla Plasma desktop with Breeze Dark set as the default theme.
 
 SCRIPT_PATH="$(readlink -f "$0" 2>/dev/null || echo "")"
 
@@ -33,6 +34,29 @@ print_step()    { echo -e "${BLUE}➜${NC} ${CYAN}$1${NC}"; }
 print_success() { echo -e "${GREEN}✓${NC} $1"; }
 print_error()   { echo -e "${RED}✗${NC} $1"; sleep 1; }
 print_warning() { echo -e "${YELLOW}⚠${NC} $1"; sleep 1; }
+
+# ── Progress ──────────────────────────────────────────────────────────────────
+# Each major phase calls progress_header to show "Step N/TOTAL" + a bar.
+TOTAL_STEPS=9
+CURRENT_STEP=0
+
+# progress_header <title> [tip] — tip (if given) prints above the progress bar.
+progress_header() {
+    CURRENT_STEP=$((CURRENT_STEP + 1))
+    print_header
+    [[ -n "${2:-}" ]] && { echo -e "${YELLOW}$2${NC}"; echo ""; }
+    local width=40
+    local filled=$((CURRENT_STEP * width / TOTAL_STEPS))
+    local empty=$((width - filled))
+    local pct=$((CURRENT_STEP * 100 / TOTAL_STEPS))
+    local bar=""
+    local i
+    for ((i = 0; i < filled; i++)); do bar+="█"; done
+    for ((i = 0; i < empty; i++)); do bar+="░"; done
+    echo -e "${PURPLE}[${GREEN}${bar}${PURPLE}]${NC} ${CYAN}${pct}%${NC}  ${YELLOW}Step ${CURRENT_STEP}/${TOTAL_STEPS}${NC}"
+    echo -e "${PURPLE}▶ ${CYAN}$1${NC}"
+    echo ""
+}
 
 # ── Privilege handling ────────────────────────────────────────────────────────
 
@@ -77,7 +101,7 @@ prompt_user() {
     echo -e "  ${BLUE}•${NC} Install multimedia codecs (ffmpeg, gstreamer, hw accel)"
     echo -e "  ${BLUE}•${NC} Install a curated utility/font set"
     echo -e "  ${BLUE}•${NC} Your selected optional apps"
-    echo -e "  ${BLUE}•${NC} SDDM (XeroDark theme) + portable XeroLinux shell config"
+    echo -e "  ${BLUE}•${NC} Plasma Login Manager + Breeze Dark as the default Plasma theme"
     echo ""
     echo -e "${YELLOW}⚠ This will modify your system!${NC}"
     echo ""
@@ -244,17 +268,31 @@ add_vscodium_repo() {
 
 # ── System setup: RPMFusion + codecs ──────────────────────────────────────────
 
-enable_rpmfusion() {
-    print_header
-    print_step "Tuning dnf (parallel downloads, fastestmirror)..."
-    if ! $SUDO_CMD grep -q '^max_parallel_downloads' /etc/dnf/dnf.conf 2>/dev/null; then
-        echo 'max_parallel_downloads=10' | $SUDO_CMD tee -a /etc/dnf/dnf.conf >/dev/null
+# Patch dnf BEFORE any install: fastest mirrors + 25 parallel downloads.
+# set_dnf_opt <key> <value> — idempotent (replace existing line or append).
+set_dnf_opt() {
+    local key="$1" val="$2"
+    if $SUDO_CMD grep -q "^${key}=" /etc/dnf/dnf.conf 2>/dev/null; then
+        $SUDO_CMD sed -i "s|^${key}=.*|${key}=${val}|" /etc/dnf/dnf.conf
+    else
+        echo "${key}=${val}" | $SUDO_CMD tee -a /etc/dnf/dnf.conf >/dev/null
     fi
-    if ! $SUDO_CMD grep -q '^fastestmirror' /etc/dnf/dnf.conf 2>/dev/null; then
-        echo 'fastestmirror=True' | $SUDO_CMD tee -a /etc/dnf/dnf.conf >/dev/null
-    fi
-    echo ""
+}
 
+tune_dnf() {
+    progress_header "Tuning dnf (fastest mirrors, 25 parallel downloads)"
+    print_step "Patching /etc/dnf/dnf.conf..."
+    $SUDO_CMD touch /etc/dnf/dnf.conf 2>/dev/null || true
+    set_dnf_opt max_parallel_downloads 25
+    set_dnf_opt fastestmirror True
+    set_dnf_opt defaultyes True
+    set_dnf_opt keepcache False
+    print_success "dnf tuned — 25 parallel downloads, fastestmirror on."
+    echo ""
+}
+
+enable_rpmfusion() {
+    progress_header "Enabling RPMFusion + system upgrade"
     print_step "Enabling RPMFusion (free + nonfree)..."
     $SUDO_CMD dnf install -y \
         "https://mirrors.rpmfusion.org/free/fedora/rpmfusion-free-release-${FEDORA_VER}.noarch.rpm" \
@@ -273,7 +311,7 @@ enable_rpmfusion() {
 }
 
 install_codecs() {
-    print_header
+    progress_header "Installing multimedia codecs"
     print_step "Installing multimedia codecs..."
 
     # Swap the limited ffmpeg-free for the full RPMFusion ffmpeg
@@ -301,7 +339,8 @@ install_codecs() {
 # ── KDE Plasma + apps ─────────────────────────────────────────────────────────
 
 install_plasma() {
-    print_header
+    progress_header "Installing KDE Plasma desktop" \
+        "☕ This phase pulls a lot of packages and may take a while — sit back, grab a coffee."
     print_step "Installing KDE Plasma desktop..."
     # Fedora's curated Plasma group — guarantees a complete, existing package set.
     install_dnf_group kde-desktop-environment
@@ -333,7 +372,7 @@ install_plasma() {
 # ── Curated utilities + fonts (Fedora-mapped from the Arch set) ───────────────
 
 install_utilities() {
-    print_header
+    progress_header "Installing curated utilities & fonts"
     print_step "Installing curated utilities..."
 
     install_group "System Utilities" \
@@ -534,7 +573,7 @@ customization_prompts() {
 }
 
 install_user_packages() {
-    print_header
+    progress_header "Installing your selected apps"
     print_step "Installing user-selected apps..."
     echo ""
 
@@ -571,7 +610,7 @@ enable_service_if_available() {
 }
 
 finalize_system() {
-    print_header
+    progress_header "Finalizing system (services + boot target)"
     print_step "Finalizing system configuration... ⚙️"
     echo ""
 
@@ -591,120 +630,77 @@ finalize_system() {
     echo ""
 }
 
-# ── Portable XeroLinux shell config (.bashrc + oh-my-posh + fastfetch) ─────────
-
-apply_user_config() {
-    print_header
-    print_step "Applying portable XeroLinux shell config... 📁"
-    echo ""
+# ── fastfetch on terminal launch ──────────────────────────────────────────────
+# Append a fastfetch hook to the real user's ~/.bashrc. No other config touched.
+setup_fastfetch_hook() {
+    progress_header "Adding fastfetch to shell startup"
+    print_step "Hooking fastfetch into ~/.bashrc..."
 
     # Determine the real (non-root) user
+    local user home
     if [[ -n "${SUDO_USER:-}" && "${SUDO_USER}" != "root" ]]; then
-        ACTUAL_USER="$SUDO_USER"
+        user="$SUDO_USER"
     elif [[ -n "${USER:-}" && "${USER}" != "root" ]]; then
-        ACTUAL_USER="$USER"
+        user="$USER"
     elif [[ "$(id -un 2>/dev/null)" != "root" ]]; then
-        ACTUAL_USER="$(id -un)"
+        user="$(id -un)"
     else
-        ACTUAL_USER="$(getent passwd | awk -F: '$3 >= 1000 && $3 < 65534 && $1 != "nobody" && $6 ~ /^\/home\// {print $1; exit}')"
+        user="$(getent passwd | awk -F: '$3 >= 1000 && $3 < 65534 && $1 != "nobody" && $6 ~ /^\/home\// {print $1; exit}')"
+    fi
+    if [[ -z "${user:-}" ]]; then
+        print_warning "Could not determine target user — skipping fastfetch hook."
+        echo ""; return 0
+    fi
+    home="$(getent passwd "$user" | cut -d: -f6)"
+    if [[ -z "${home:-}" || ! -d "$home" ]]; then
+        print_warning "Home dir for $user not found — skipping fastfetch hook."
+        echo ""; return 0
     fi
 
-    if [[ -z "${ACTUAL_USER:-}" ]]; then
-        print_warning "Could not determine target user — skipping shell config."
-        return 1
-    fi
-    ACTUAL_HOME="$(getent passwd "$ACTUAL_USER" | cut -d: -f6)"
-    if [[ -z "${ACTUAL_HOME:-}" || ! -d "$ACTUAL_HOME" ]]; then
-        print_warning "Home dir for $ACTUAL_USER not found — skipping shell config."
-        return 1
-    fi
-
-    # Install oh-my-posh to /usr/local/bin (no Fedora package)
-    print_step "Installing oh-my-posh..."
-    if ! command -v oh-my-posh >/dev/null 2>&1; then
-        $SUDO_CMD bash -c 'curl -fsSL https://ohmyposh.dev/install.sh | bash -s -- -d /usr/local/bin' \
-            &>/dev/null \
-            && print_success "oh-my-posh installed!" \
-            || print_warning "oh-my-posh install failed (non-critical)"
+    if grep -qF "clear && fastfetch" "$home/.bashrc" 2>/dev/null; then
+        print_success "fastfetch hook already present."
     else
-        print_success "oh-my-posh already present."
+        printf '\n%s\n%s\n' "# Fastfetch on terminal start" "clear && fastfetch" \
+            >> "$home/.bashrc"
+        $SUDO_CMD chown "$user:$user" "$home/.bashrc" 2>/dev/null || true
+        print_success "fastfetch hook added for $user."
     fi
-    echo ""
-
-    # Fetch XeroLinux .bashrc + oh-my-posh theme
-    print_step "Fetching XeroLinux .bashrc + theme..."
-    curl -fsSL "https://raw.githubusercontent.com/xerolinux/XeroBuild/main/FOSS/airootfs/etc/skel/.bashrc" \
-        -o "$ACTUAL_HOME/.bashrc" 2>/dev/null \
-        && print_success ".bashrc applied!" \
-        || print_warning "Failed to fetch .bashrc (non-critical)"
-
-    $SUDO_CMD -u "$ACTUAL_USER" mkdir -p "$ACTUAL_HOME/.config/ohmyposh" 2>/dev/null || \
-        mkdir -p "$ACTUAL_HOME/.config/ohmyposh" 2>/dev/null
-    curl -fsSL "https://raw.githubusercontent.com/xerolinux/XeroBuild/main/FOSS/airootfs/etc/skel/.config/ohmyposh/xero.omp.json" \
-        -o "$ACTUAL_HOME/.config/ohmyposh/xero.omp.json" 2>/dev/null \
-        && print_success "oh-my-posh theme applied!" \
-        || print_warning "Failed to fetch oh-my-posh theme (non-critical)"
-
-    # Ensure oh-my-posh + fastfetch hooks are present in .bashrc
-    OMP_LINE='eval "$(oh-my-posh init bash --config $HOME/.config/ohmyposh/xero.omp.json)"'
-    if ! grep -qF "oh-my-posh init bash" "$ACTUAL_HOME/.bashrc" 2>/dev/null; then
-        {
-            echo ""
-            echo "# Oh-My-Posh Config"
-            echo "$OMP_LINE"
-        } >> "$ACTUAL_HOME/.bashrc"
-    fi
-    if ! grep -qF "clear && fastfetch" "$ACTUAL_HOME/.bashrc" 2>/dev/null; then
-        {
-            echo ""
-            echo "# Fastfetch on terminal start"
-            echo "clear && fastfetch"
-        } >> "$ACTUAL_HOME/.bashrc"
-    fi
-
-    $SUDO_CMD chown -R "$ACTUAL_USER:$ACTUAL_USER" "$ACTUAL_HOME/.bashrc" "$ACTUAL_HOME/.config/ohmyposh" 2>/dev/null || true
-    print_success "Shell config applied for $ACTUAL_USER."
     echo ""
 }
 
-# ── SDDM + XeroDark theme ─────────────────────────────────────────────────────
+# ── Plasma Login Manager + Breeze Dark default ────────────────────────────────
 
-setup_sddm() {
-    print_header
-    print_step "Installing SDDM..."
-    $SUDO_CMD dnf install -y sddm sddm-kcm || { print_error "Failed to install SDDM!"; exit 1; }
-    print_success "SDDM installed!"
+setup_login_manager() {
+    progress_header "Setting up Plasma Login Manager + Breeze Dark"
+    print_step "Installing plasma-login-manager..."
+    $SUDO_CMD dnf install -y plasma-login-manager \
+        || { print_error "Failed to install plasma-login-manager!"; exit 1; }
+    print_success "Plasma Login Manager installed!"
     echo ""
 
-    print_step "Installing XeroDark SDDM theme..."
-    $SUDO_CMD rm -rf /usr/share/sddm/themes/XeroDark
-    $SUDO_CMD git clone --depth=1 https://github.com/xerolinux/XeroDark.git \
-        /usr/share/sddm/themes/XeroDark 2>/dev/null \
-        && print_success "XeroDark theme installed!" \
-        || print_warning "Failed to clone XeroDark theme (non-critical)"
-    echo ""
-
-    print_step "Writing SDDM configuration..."
-    $SUDO_CMD mkdir -p /etc/sddm.conf.d
-    printf '%s\n' '[General]' 'InputMethod=' \
-        | $SUDO_CMD tee /etc/sddm.conf >/dev/null
-    printf '%s\n' \
-        '[Autologin]' 'Relogin=false' 'Session=' 'User=' '' \
-        '[General]' \
-        'HaltCommand=/usr/bin/systemctl poweroff' \
-        'RebootCommand=/usr/bin/systemctl reboot' '' \
-        '[Theme]' 'Current=XeroDark' '' \
-        '[Users]' 'MaximumUid=60000' 'MinimumUid=1000' \
-        | $SUDO_CMD tee /etc/sddm.conf.d/kde_settings.conf >/dev/null
-    print_success "SDDM configuration written!"
-    echo ""
-
-    print_step "Enabling sddm.service..."
-    # Disable any existing DM first (Fedora Server has none; harmless if absent)
+    print_step "Enabling plasmalogin.service..."
+    # Disable any other display manager first (harmless if absent).
     $SUDO_CMD systemctl disable gdm.service &>/dev/null || true
-    $SUDO_CMD systemctl enable sddm.service \
-        && print_success "sddm.service enabled!" \
-        || { print_error "Failed to enable sddm.service!"; exit 1; }
+    $SUDO_CMD systemctl disable sddm.service &>/dev/null || true
+    $SUDO_CMD systemctl enable plasmalogin.service \
+        && print_success "plasmalogin.service enabled!" \
+        || { print_error "Failed to enable plasmalogin.service!"; exit 1; }
+    echo ""
+
+    # Make Breeze Dark the system-wide Plasma default (look-and-feel + color
+    # scheme). Written to /etc/xdg so it applies to every user who hasn't picked
+    # their own theme — no per-user config files touched.
+    print_step "Setting Breeze Dark as default Plasma theme..."
+    $SUDO_CMD mkdir -p /etc/xdg
+    printf '%s\n' \
+        '[General]' \
+        'ColorScheme=BreezeDark' \
+        '' \
+        '[KDE]' \
+        'LookAndFeelPackage=org.kde.breezedark.desktop' \
+        | $SUDO_CMD tee /etc/xdg/kdeglobals >/dev/null \
+        && print_success "Default theme = Breeze Dark." \
+        || print_warning "Could not write default theme (non-critical)"
     echo ""
 }
 
@@ -729,6 +725,7 @@ setup_sudo
 check_fedora
 prompt_user
 customization_prompts
+tune_dnf
 enable_rpmfusion
 setup_flatpak
 install_codecs
@@ -736,8 +733,8 @@ install_plasma
 install_utilities
 install_user_packages
 finalize_system
-apply_user_config
-setup_sddm
+setup_fastfetch_hook
+setup_login_manager
 show_completion
 
 # Self-destruct only when run as a downloaded file (not via curl | bash, where
