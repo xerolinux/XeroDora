@@ -1,6 +1,6 @@
 #!/usr/bin/env bash
 
-# XeroLinux KDE Plasma Installer — Fedora port v1.0
+# XeroLinux KDE Plasma Installer - Fedora port v1.0
 # Run from TTY after a minimal/Server Fedora install, or via:
 #   curl -fsSL https://raw.githubusercontent.com/DarkXero-dev/FedoraCrap/main/xero-kde-fedora.sh | bash
 #
@@ -122,7 +122,7 @@ setup_sudo() {
 
 check_fedora() {
     if [[ ! -r /etc/os-release ]]; then
-        print_error "/etc/os-release missing — cannot detect distro."
+        print_error "/etc/os-release missing - cannot detect distro."
         exit 1
     fi
     # shellcheck disable=SC1091
@@ -140,7 +140,7 @@ check_fedora() {
 prompt_user() {
     print_header
     echo -e "${CYAN}This script will:${NC}"
-    echo -e "  ${BLUE}•${NC} Enable RPMFusion (free + nonfree) + Flathub"
+    echo -e "  ${BLUE}•${NC} Enable RPMFusion (free + nonfree) + Terra (Fyra Labs) + Flathub"
     echo -e "  ${BLUE}•${NC} Install KDE Plasma Desktop + curated KDE apps"
     echo -e "  ${BLUE}•${NC} Install multimedia codecs (ffmpeg, gstreamer, hw accel)"
     echo -e "  ${BLUE}•${NC} Install a curated utility/font set"
@@ -161,7 +161,7 @@ prompt_user() {
 
 # install_group <name> <pkg...>
 # Bulk install; on failure retry each package individually so one missing/bad
-# package never blocks the rest. Never aborts — reports skipped as warnings.
+# package never blocks the rest. Never aborts - reports skipped as warnings.
 install_group() {
     local group_name="$1"; shift
     local pkgs=("$@")
@@ -173,7 +173,7 @@ install_group() {
         return 0
     fi
 
-    print_warning "[$group_name] Bulk install failed — retrying individually..."
+    print_warning "[$group_name] Bulk install failed - retrying individually..."
     local failed=() installed=0
     for pkg in "${pkgs[@]}"; do
         if $SUDO_CMD dnf install -y "$pkg"; then
@@ -185,12 +185,12 @@ install_group() {
 
     [[ ${#failed[@]} -gt 0 ]] && \
         print_warning "[$group_name] Skipped (${#failed[@]}): ${failed[*]}"
-    print_success "[$group_name] Done — $installed installed, ${#failed[@]} skipped."
+    print_success "[$group_name] Done - $installed installed, ${#failed[@]} skipped."
     echo ""
     return 0
 }
 
-# install_group_required <name> <pkg...> — aborts if ZERO installed.
+# install_group_required <name> <pkg...> - aborts if ZERO installed.
 install_group_required() {
     local group_name="$1"; shift
     local pkgs=("$@")
@@ -202,7 +202,7 @@ install_group_required() {
         return 0
     fi
 
-    print_warning "[$group_name] Bulk install failed — retrying individually..."
+    print_warning "[$group_name] Bulk install failed - retrying individually..."
     local failed=() installed=0
     for pkg in "${pkgs[@]}"; do
         if $SUDO_CMD dnf install -y "$pkg"; then
@@ -215,22 +215,22 @@ install_group_required() {
     [[ ${#failed[@]} -gt 0 ]] && \
         print_warning "[$group_name] Skipped (${#failed[@]}): ${failed[*]}"
     if [[ $installed -eq 0 ]]; then
-        print_error "[$group_name] Critical: zero packages installed — aborting!"
+        print_error "[$group_name] Critical: zero packages installed - aborting!"
         exit 1
     fi
-    print_success "[$group_name] Done — $installed installed, ${#failed[@]} skipped."
+    print_success "[$group_name] Done - $installed installed, ${#failed[@]} skipped."
     echo ""
     return 0
 }
 
-# install_dnf_group <comterm group-id>... — install a dnf comps group, non-fatal.
+# install_dnf_group <comterm group-id>... - install a dnf comps group, non-fatal.
 install_dnf_group() {
     local g="$1"
     print_step "Installing dnf group: $g ..."
     if $SUDO_CMD dnf group install -y "$g"; then
         print_success "Group '$g' installed!"
     else
-        print_warning "Group '$g' failed or not found — continuing."
+        print_warning "Group '$g' failed or not found - continuing."
     fi
     echo ""
 }
@@ -248,12 +248,12 @@ setup_flatpak() {
         && print_success "Flathub remote added!" \
         || print_warning "Could not add Flathub remote (non-critical)"
 
-    # Fedora ships its Flathub pre-filtered to a subset — drop the filter and
+    # Fedora ships its Flathub pre-filtered to a subset - drop the filter and
     # make sure it's enabled so the complete Flathub catalog is available.
     $SUDO_CMD flatpak remote-modify --enable flathub 2>/dev/null || true
     $SUDO_CMD flatpak remote-modify --no-filter flathub 2>/dev/null || true
 
-    # Disable Fedora's own flatpak remotes (the OCI "fedora" ones) — an inferior,
+    # Disable Fedora's own flatpak remotes (the OCI "fedora" ones) - an inferior,
     # half-maintained subset. Everything should come from Flathub instead.
     print_step "Disabling Fedora flatpak remotes..."
     for r in fedora fedora-testing; do
@@ -284,7 +284,7 @@ flatpak_install() {
     done
     [[ ${#failed[@]} -gt 0 ]] && \
         print_warning "[Flatpak] Skipped (${#failed[@]}): ${failed[*]}"
-    print_success "[Flatpak] Done — $installed installed, ${#failed[@]} skipped."
+    print_success "[Flatpak] Done - $installed installed, ${#failed[@]} skipped."
     echo ""
 }
 
@@ -335,7 +335,7 @@ add_vscodium_repo() {
 # ── System setup: RPMFusion + codecs ──────────────────────────────────────────
 
 # Patch dnf BEFORE any install: fastest mirrors + 25 parallel downloads.
-# set_dnf_opt <key> <value> — idempotent (replace existing line or append).
+# set_dnf_opt <key> <value> - idempotent (replace existing line or append).
 set_dnf_opt() {
     local key="$1" val="$2"
     if $SUDO_CMD grep -q "^${key}=" /etc/dnf/dnf.conf 2>/dev/null; then
@@ -349,13 +349,13 @@ tune_dnf() {
     print_phase "Tuning dnf (fastest mirrors, 20 parallel downloads)"
     print_step "Patching /etc/dnf/dnf.conf..."
     $SUDO_CMD touch /etc/dnf/dnf.conf 2>/dev/null || true
-    # librepo (dnf5) hard-caps parallel downloads at 20 — higher = "Bad value
+    # librepo (dnf5) hard-caps parallel downloads at 20 - higher = "Bad value
     # of LRO_MAXPARALLELDOWNLOADS" and all metadata fails.
     set_dnf_opt max_parallel_downloads 20
     set_dnf_opt fastestmirror True
     set_dnf_opt defaultyes True
     set_dnf_opt keepcache False
-    print_success "dnf tuned — 20 parallel downloads, fastestmirror on."
+    print_success "dnf tuned - 20 parallel downloads, fastestmirror on."
     echo ""
 }
 
@@ -371,10 +371,22 @@ enable_rpmfusion() {
 
     print_step "Updating system + core group..."
     $SUDO_CMD dnf -y group upgrade core || true
-    $SUDO_CMD dnf -y upgrade --refresh || print_warning "System upgrade had errors — continuing."
+    $SUDO_CMD dnf -y upgrade --refresh || print_warning "System upgrade had errors - continuing."
     # appstream metadata for KDE Discover / Flatpak
     $SUDO_CMD dnf install -y rpmfusion-free-appstream-data rpmfusion-nonfree-appstream-data || true
     print_success "System updated!"
+    echo ""
+}
+
+enable_terra() {
+    print_phase "Enabling Terra repo (Fyra Labs)"
+    print_step "Installing terra-release via --repofrompath..."
+    # shellcheck disable=SC2016
+    $SUDO_CMD dnf install -y --nogpgcheck \
+        --repofrompath 'terra,https://repos.fyralabs.com/terra$releasever' \
+        terra-release \
+        && print_success "Terra repo enabled!" \
+        || print_warning "Terra repo install failed - continuing without it."
     echo ""
 }
 
@@ -408,9 +420,9 @@ install_codecs() {
 
 install_plasma() {
     print_phase "Installing KDE Plasma desktop" \
-        "☕ This phase pulls a lot of packages and may take a while — sit back, grab a coffee."
+        "☕ This phase pulls a lot of packages and may take a while - sit back, grab a coffee."
     print_step "Installing KDE Plasma desktop..."
-    # Fedora's curated Plasma group — guarantees a complete, existing package set.
+    # Fedora's curated Plasma group - guarantees a complete, existing package set.
     install_dnf_group kde-desktop-environment
 
     # Belt-and-suspenders core bits in case the group is trimmed.
@@ -543,7 +555,7 @@ customization_prompts() {
             7)  FLAT_APPS="$FLAT_APPS net.mullvad.MullvadBrowser" ;;
             8)  FLAT_APPS="$FLAT_APPS io.github.ungoogled_software.ungoogled_chromium" ;;
             9)  DNF_APPS="$DNF_APPS filezilla" ;;
-            10) print_warning "Helium has no Fedora rpm or Flatpak — skipping." ;;
+            10) print_warning "Helium has no Fedora rpm or Flatpak - skipping." ;;
             11) FLAT_APPS="$FLAT_APPS app.zen_browser.zen" ;;
             12) FLAT_APPS="$FLAT_APPS com.rtosta.zapzap" ;;
             13) FLAT_APPS="$FLAT_APPS com.discordapp.Discord" ;;
@@ -673,7 +685,7 @@ enable_service_if_available() {
             && print_success "Enabled: $svc" \
             || print_warning "Failed to enable $svc"
     else
-        print_warning "Unit $svc not found — skipping"
+        print_warning "Unit $svc not found - skipping"
     fi
 }
 
@@ -716,12 +728,12 @@ setup_fastfetch_hook() {
         user="$(getent passwd | awk -F: '$3 >= 1000 && $3 < 65534 && $1 != "nobody" && $6 ~ /^\/home\// {print $1; exit}')"
     fi
     if [[ -z "${user:-}" ]]; then
-        print_warning "Could not determine target user — skipping fastfetch hook."
+        print_warning "Could not determine target user - skipping fastfetch hook."
         echo ""; return 0
     fi
     home="$(getent passwd "$user" | cut -d: -f6)"
     if [[ -z "${home:-}" || ! -d "$home" ]]; then
-        print_warning "Home dir for $user not found — skipping fastfetch hook."
+        print_warning "Home dir for $user not found - skipping fastfetch hook."
         echo ""; return 0
     fi
 
@@ -757,7 +769,7 @@ setup_login_manager() {
 
     # Make Breeze Dark the system-wide Plasma default (look-and-feel + color
     # scheme). Written to /etc/xdg so it applies to every user who hasn't picked
-    # their own theme — no per-user config files touched.
+    # their own theme - no per-user config files touched.
     print_step "Setting Breeze Dark as default Plasma theme..."
     $SUDO_CMD mkdir -p /etc/xdg
     printf '%s\n' \
@@ -769,6 +781,51 @@ setup_login_manager() {
         | $SUDO_CMD tee /etc/xdg/kdeglobals >/dev/null \
         && print_success "Default theme = Breeze Dark." \
         || print_warning "Could not write default theme (non-critical)"
+    echo ""
+}
+
+# ── Optional: XeroLinux Layan KDE Rice ───────────────────────────────────────
+
+prompt_layan_rice() {
+    clear
+    echo -e "${PURPLE}═══════════════════════════════════════════════════════════════════════════${NC}"
+    echo -e "${PURPLE}              ✨  XeroLinux Layan KDE Rice  ✨${NC}"
+    echo -e "${PURPLE}───────────────────────────────────────────────────────────────────────────${NC}"
+    echo -e "${CYAN}     A curated Layan theme stack: icons, colours, Kvantum,${NC}"
+    echo -e "${CYAN}     cursors & Plasma look-and-feel - auto-detected for Fedora.${NC}"
+    echo -e "${PURPLE}═══════════════════════════════════════════════════════════════════════════${NC}"
+    echo ""
+    read -p "$(echo -e "${GREEN}Apply Layan rice? ${NC}[${GREEN}y${NC}/${RED}N${NC}]: ")" -n 1 -r </dev/tty
+    echo ""
+    if [[ ! $REPLY =~ ^[Yy]$ ]]; then
+        print_warning "Skipping Layan rice."
+        echo ""; return 0
+    fi
+
+    print_phase "Applying XeroLinux Layan KDE Rice"
+
+    # git is already installed by install_utilities; sanity check anyway.
+    if ! command -v git >/dev/null 2>&1; then
+        print_warning "git not found - cannot clone Layan rice. Skipping."
+        echo ""; return 0
+    fi
+
+    local tmp_dir
+    tmp_dir="$(mktemp -d)"
+    print_step "Cloning xero-layan-git to ${tmp_dir}..."
+    if ! git clone https://github.com/xerolinux/xero-layan-git "$tmp_dir/xero-layan-git"; then
+        print_error "Clone failed - skipping Layan rice."
+        rm -rf "$tmp_dir"; echo ""; return 0
+    fi
+
+    print_step "Running Layan install.sh..."
+    if ( cd "$tmp_dir/xero-layan-git" && bash install.sh </dev/tty ); then
+        print_success "Layan rice applied!"
+    else
+        print_warning "Layan install.sh exited with errors - rice may be partial."
+    fi
+
+    rm -rf "$tmp_dir"
     echo ""
 }
 
@@ -798,6 +855,7 @@ term_init_sticky      # pin phase headers to the top; output scrolls below
 
 tune_dnf
 enable_rpmfusion
+enable_terra
 setup_flatpak
 install_codecs
 install_plasma
@@ -808,6 +866,7 @@ setup_fastfetch_hook
 setup_login_manager
 
 term_reset            # restore normal full-screen scrolling
+prompt_layan_rice
 show_completion
 
 # Self-destruct only when run as a downloaded file (not via curl | bash, where
