@@ -420,7 +420,7 @@ enable_terra() {
         || print_warning "Terra GPG key import failed - makecache may prompt."
 
     print_step "Refreshing repo metadata (RPMFusion + Terra)..."
-    $SUDO_CMD dnf makecache --refresh \
+    $SUDO_CMD dnf -y makecache --refresh \
         && print_success "Repo metadata refreshed!" \
         || print_warning "Metadata refresh had errors - some packages may 404."
     echo ""
