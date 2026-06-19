@@ -905,77 +905,16 @@ prompt_layan_rice() {
     fi
 
     # Patch install.sh: drop -e from set -eu so a package failure does not abort
-    # the script before rice configs and the GRUB theme step are reached.
-    print_step "Patching install.sh and Grub.sh for Fedora..."
-    sed -i 's/^set -eu$/set -u/' "$tmp_dir/xero-layan-git/install.sh"
-
-    # Replace Grub.sh with a Fedora-correct version:
-    #  - No trailing slash on THEME_DIR (avoids double-slash in grub path)
-    #  - Always wipes stale GRUB_THEME line before writing the new one
-    #  - Sets GRUB_TIMEOUT=5 + GRUB_TIMEOUT_STYLE=menu on Fedora so the menu
-    #    is actually visible (Fedora defaults to hidden/0s - theme installs but
-    #    is never shown without this)
-    #  - Drops the fragile interactive password-prompt fallback; caller uses sudo
-    cat > "$tmp_dir/xero-layan-git/Grub.sh" << 'GRUBEOF'
-#!/bin/bash
-ROOT_UID=0
-if command -v dnf > /dev/null 2>&1 || command -v zypper > /dev/null 2>&1; then
-  THEME_DIR="/boot/grub2/themes"
-else
-  THEME_DIR="/usr/share/grub/themes"
-fi
-THEME_NAME=XeroLayan
-CGSC=" \033[0;32m"; CRER=" \033[0;31m"; CCIN=" \033[0;36m"; CDEF=" \033[0m"
-b_CGSC=" \033[1;32m"; b_CRER=" \033[1;31m"; b_CCIN=" \033[1;36m"
-prompt() {
-  case ${1} in
-    "-s") echo -e "${b_CGSC}${*/-s/}${CDEF}";;
-    "-e") echo -e "${b_CRER}${*/-e/}${CDEF}";;
-    "-i") echo -e "${b_CCIN}${*/-i/}${CDEF}";;
-    *)    echo -e "$*";;
-  esac
-}
-has_command() { command -v "$1" > /dev/null 2>&1; }
-set_grub_opt() {
-  local key="$1" val="$2"
-  if grep -q "^${key}=" /etc/default/grub 2>/dev/null; then
-    sed -i "s|^${key}=.*|${key}=${val}|" /etc/default/grub
-  else
-    echo "${key}=${val}" >> /etc/default/grub
-  fi
-}
-prompt -s "\n\t************************\n\t*  ${THEME_NAME} - Grub2 Theme  *\n\t************************"
-if [ "$UID" -eq "$ROOT_UID" ]; then
-  prompt -i "\nChecking theme directory..."
-  [[ -d "${THEME_DIR}/${THEME_NAME}" ]] && rm -rf "${THEME_DIR}/${THEME_NAME}"
-  mkdir -p "${THEME_DIR}/${THEME_NAME}"
-  prompt -i "\nCopying theme files..."
-  cp -a "${THEME_NAME}/"* "${THEME_DIR}/${THEME_NAME}/"
-  prompt -i "\nUpdating /etc/default/grub..."
-  cp -an /etc/default/grub /etc/default/grub.bak
-  sed -i '/^GRUB_THEME=/d' /etc/default/grub
-  echo "GRUB_THEME=\"${THEME_DIR}/${THEME_NAME}/theme.txt\"" >> /etc/default/grub
-  if command -v dnf > /dev/null 2>&1; then
-    prompt -i "\nSetting Fedora GRUB timeout (5s, menu visible)..."
-    set_grub_opt GRUB_TIMEOUT 5
-    set_grub_opt GRUB_TIMEOUT_STYLE menu
-    set_grub_opt GRUB_GFXMODE 1920x1080x32
-  fi
-  prompt -i "\nRebuilding grub config..."
-  if has_command update-grub; then
-    update-grub
-  elif has_command grub-mkconfig; then
-    grub-mkconfig -o /boot/grub/grub.cfg
-  elif has_command grub2-mkconfig; then
-    grub2-mkconfig -o /boot/grub2/grub.cfg
-  fi
-  prompt -s "\n\t          ***************\n\t          *  installed!  *\n\t          ***************\n"
-else
-  prompt -e "\n [ Error! ] -> Run as root: sudo bash Grub.sh"
-  exit 1
-fi
-GRUBEOF
-    chmod +x "$tmp_dir/xero-layan-git/Grub.sh"
+    # the script before rice configs are reached. Skip the GRUB theme step
+    # entirely on Fedora - leave GRUB at its default.
+    print_step "Patching install.sh for Fedora..."
+    sed -i \
+        -e 's/^set -eu$/set -u/' \
+        -e 's|sudo ./Grub.sh|echo "GRUB theme skipped on Fedora."|' \
+        -e '/set_grub_option GRUB_TIMEOUT/d' \
+        -e '/set_grub_option GRUB_TIMEOUT_STYLE/d' \
+        -e '/set_grub_option GRUB_GFXMODE/d' \
+        "$tmp_dir/xero-layan-git/install.sh"
     print_success "Patched."
 
     local exit_code=0
