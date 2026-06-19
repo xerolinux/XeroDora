@@ -789,6 +789,45 @@ setup_login_manager() {
     echo ""
 }
 
+# ── Branding: os-release + lsb-release ───────────────────────────────────────
+
+setup_branding() {
+    print_phase "Applying XeroLinux Fedora branding"
+
+    # Patch a key=value line in /etc/os-release: replace if present, append if not.
+    # Keeps ID=fedora and VERSION_ID untouched (DNF/RPM rely on them).
+    patch_os_release() {
+        local key="$1" val="$2"
+        if $SUDO_CMD grep -q "^${key}=" /etc/os-release 2>/dev/null; then
+            $SUDO_CMD sed -i "s|^${key}=.*|${key}=${val}|" /etc/os-release
+        else
+            echo "${key}=${val}" | $SUDO_CMD tee -a /etc/os-release >/dev/null
+        fi
+    }
+
+    print_step "Patching /etc/os-release..."
+    patch_os_release NAME            '"XeroLinux Fedora"'
+    patch_os_release PRETTY_NAME     '"XeroLinux KDE (Fedora '"${FEDORA_VER}"')"'
+    patch_os_release HOME_URL        '"https://xerolinux.xyz"'
+    patch_os_release DOCUMENTATION_URL '"https://github.com/DarkXero-dev/FedoraCrap"'
+    patch_os_release SUPPORT_URL     '"https://github.com/DarkXero-dev/FedoraCrap/discussions"'
+    patch_os_release BUG_REPORT_URL  '"https://github.com/DarkXero-dev/FedoraCrap/issues"'
+    patch_os_release VARIANT         '"KDE Plasma"'
+    patch_os_release VARIANT_ID      'kde'
+    print_success "/etc/os-release patched!"
+
+    print_step "Writing /etc/lsb-release..."
+    printf '%s\n' \
+        'DISTRIB_ID="XeroLinux"' \
+        "DISTRIB_RELEASE=\"${FEDORA_VER}\"" \
+        'DISTRIB_CODENAME="Fedora"' \
+        "DISTRIB_DESCRIPTION=\"XeroLinux KDE Fedora ${FEDORA_VER}\"" \
+        | $SUDO_CMD tee /etc/lsb-release >/dev/null \
+        && print_success "/etc/lsb-release written!" \
+        || print_warning "Could not write /etc/lsb-release (non-critical)"
+    echo ""
+}
+
 # ── Optional: XeroLinux Layan KDE Rice ───────────────────────────────────────
 
 prompt_layan_rice() {
@@ -894,6 +933,7 @@ install_user_packages
 finalize_system
 setup_fastfetch_hook
 setup_login_manager
+setup_branding
 
 term_reset            # restore normal full-screen scrolling
 prompt_layan_rice
