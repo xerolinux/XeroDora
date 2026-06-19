@@ -387,6 +387,11 @@ enable_terra() {
         terra-release \
         && print_success "Terra repo enabled!" \
         || print_warning "Terra repo install failed - continuing without it."
+
+    print_step "Refreshing repo metadata (RPMFusion + Terra)..."
+    $SUDO_CMD dnf makecache --refresh \
+        && print_success "Repo metadata refreshed!" \
+        || print_warning "Metadata refresh had errors - some packages may 404."
     echo ""
 }
 
