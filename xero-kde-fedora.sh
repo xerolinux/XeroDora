@@ -804,10 +804,20 @@ prompt_layan_rice() {
 
     print_phase "Applying XeroLinux Layan KDE Rice"
 
-    # git is already installed by install_utilities; sanity check anyway.
     if ! command -v git >/dev/null 2>&1; then
         print_warning "git not found - cannot clone Layan rice. Skipping."
         echo ""; return 0
+    fi
+
+    # Resolve the real (non-root) user. install.sh copies configs to $HOME, so
+    # running it as root deposits everything in /root instead of the user's home.
+    local real_user=""
+    if [[ -n "${SUDO_USER:-}" && "${SUDO_USER}" != "root" ]]; then
+        real_user="$SUDO_USER"
+    elif [[ ${EUID:-0} -ne 0 ]]; then
+        real_user="${USER:-$(id -un)}"
+    else
+        real_user="$(getent passwd | awk -F: '$3 >= 1000 && $3 < 65534 && $6 ~ /^\/home\// {print $1; exit}')"
     fi
 
     local tmp_dir
@@ -818,11 +828,26 @@ prompt_layan_rice() {
         rm -rf "$tmp_dir"; echo ""; return 0
     fi
 
-    print_step "Running Layan install.sh..."
-    if ( cd "$tmp_dir/xero-layan-git" && bash install.sh </dev/tty ); then
+    local exit_code=0
+    if [[ -n "$real_user" && "${EUID:-0}" -eq 0 ]]; then
+        # Outer script runs as root (sudo). Give the clone to the real user so
+        # install.sh writes configs to their home, not /root. sudo ./Grub.sh
+        # inside install.sh will still escalate back to root for system writes.
+        print_step "Running Layan install.sh as ${real_user}..."
+        chown -R "${real_user}:${real_user}" "$tmp_dir"
+        sudo -u "$real_user" bash -c \
+            "cd '$tmp_dir/xero-layan-git' && bash install.sh" </dev/tty \
+            || exit_code=$?
+    else
+        print_step "Running Layan install.sh..."
+        ( cd "$tmp_dir/xero-layan-git" && bash install.sh ) </dev/tty \
+            || exit_code=$?
+    fi
+
+    if [[ $exit_code -eq 0 ]]; then
         print_success "Layan rice applied!"
     else
-        print_warning "Layan install.sh exited with errors - rice may be partial."
+        print_warning "Layan install.sh exited with errors (code ${exit_code}) - rice may be partial."
     fi
 
     rm -rf "$tmp_dir"
