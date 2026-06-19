@@ -64,7 +64,7 @@ term_reset() {
     printf '\033[%d;1H' "$TERM_LINES"     # park cursor at the bottom
     STICKY=0
 }
-trap term_reset EXIT INT TERM
+trap 'term_reset; stop_sudo_keepalive' EXIT INT TERM
 
 # Draw the pinned header in the reserved rows, then clear + park the cursor in
 # the scroll region so the next phase starts with a fresh area beneath it.
@@ -104,17 +104,41 @@ print_phase() {
 
 # ── Privilege handling ────────────────────────────────────────────────────────
 
-# Fedora desktop install context: user runs with sudo, or as root from TTY.
+SUDO_KEEPALIVE_PID=""
+
 setup_sudo() {
     if [[ ${EUID:-0} -eq 0 ]]; then
+        if [[ -n "${SUDO_USER:-}" && "${SUDO_USER}" != "root" ]]; then
+            # Launched via `sudo bash script.sh` - works but rice configs will
+            # land in /root. Running as your normal user is preferred:
+            #   bash xero-kde-fedora.sh
+            print_warning "Running as root via sudo. Prefer: bash xero-kde-fedora.sh (no sudo)"
+            print_warning "Rice/theme configs will target ${SUDO_USER}'s home via sudo -H -u."
+            sleep 2
+        else
+            print_step "Running as root."
+        fi
         SUDO_CMD=""
-        print_step "Running as root."
     else
         if ! command -v sudo >/dev/null 2>&1; then
-            print_error "Not root and 'sudo' not found. Re-run as root."
+            print_error "sudo not found. Re-run as root or install sudo."
             exit 1
         fi
         SUDO_CMD="sudo"
+        # Cache credentials now and keep the timestamp alive for the full install.
+        # A typical KDE install takes 20-40 min - well past the default 15 min expiry.
+        print_step "Caching sudo credentials..."
+        sudo -v || { print_error "sudo auth failed."; exit 1; }
+        ( while true; do sleep 50; sudo -n true 2>/dev/null; done ) &
+        SUDO_KEEPALIVE_PID=$!
+        print_success "sudo keepalive started (PID ${SUDO_KEEPALIVE_PID})."
+    fi
+}
+
+stop_sudo_keepalive() {
+    if [[ -n "${SUDO_KEEPALIVE_PID:-}" ]]; then
+        kill "$SUDO_KEEPALIVE_PID" 2>/dev/null || true
+        SUDO_KEEPALIVE_PID=""
     fi
 }
 
@@ -866,32 +890,54 @@ prompt_layan_rice() {
 
     local tmp_dir
     tmp_dir="$(mktemp -d)"
-    print_step "Cloning xero-layan-git to ${tmp_dir}..."
+    print_step "Cloning xero-layan-git..."
     if ! git clone https://github.com/xerolinux/xero-layan-git "$tmp_dir/xero-layan-git"; then
         print_error "Clone failed - skipping Layan rice."
         rm -rf "$tmp_dir"; echo ""; return 0
     fi
 
+    # Drop the -e flag from `set -eu` so a single failed package install does
+    # not abort the entire script and skip the rice configs + GRUB theme.
+    print_step "Patching install.sh for Fedora compatibility..."
+    sed -i 's/^set -eu$/set -u/' "$tmp_dir/xero-layan-git/install.sh"
+    print_success "Patched."
+
     local exit_code=0
-    if [[ -n "$real_user" && "${EUID:-0}" -eq 0 ]]; then
-        # Outer script runs as root (sudo). Give the clone to the real user so
-        # install.sh writes configs to their home, not /root. sudo ./Grub.sh
-        # inside install.sh will still escalate back to root for system writes.
+    if [[ "${EUID:-0}" -ne 0 ]]; then
+        # Normal user (preferred): $HOME is already correct, install.sh uses its
+        # own sudo for root writes. Just run it directly with TTY access.
+        print_step "Running Layan install.sh..."
+        ( cd "$tmp_dir/xero-layan-git" && bash install.sh ) </dev/tty \
+            || exit_code=$?
+    elif [[ -n "$real_user" ]]; then
+        # Running as root (via sudo): drop to the real user so configs land in
+        # their home. sudo -H ensures $HOME is set correctly. install.sh re-
+        # escalates via its own `sudo ./Grub.sh` for system writes.
         print_step "Running Layan install.sh as ${real_user}..."
         chown -R "${real_user}:${real_user}" "$tmp_dir"
-        sudo -u "$real_user" bash -c \
+        sudo -H -u "$real_user" bash -c \
             "cd '$tmp_dir/xero-layan-git' && bash install.sh" </dev/tty \
             || exit_code=$?
     else
-        print_step "Running Layan install.sh..."
+        # True root with no detectable normal user (bare root login).
+        print_step "Running Layan install.sh as root..."
         ( cd "$tmp_dir/xero-layan-git" && bash install.sh ) </dev/tty \
             || exit_code=$?
     fi
 
-    if [[ $exit_code -eq 0 ]]; then
-        print_success "Layan rice applied!"
+    # Verify rice landed - kvantum config is one of the first things copied.
+    local rice_ok=0
+    local check_home="${HOME}"
+    [[ "${EUID:-0}" -eq 0 && -n "$real_user" ]] && \
+        check_home="$(getent passwd "$real_user" | cut -d: -f6)"
+    [[ -f "${check_home}/.config/kvantum/kvantum.kvconfig" ]] && rice_ok=1
+
+    if [[ $rice_ok -eq 1 ]]; then
+        print_success "Layan rice applied and verified!"
+    elif [[ $exit_code -eq 0 ]]; then
+        print_warning "install.sh exited cleanly but rice config not detected - reboot and check."
     else
-        print_warning "Layan install.sh exited with errors (code ${exit_code}) - rice may be partial."
+        print_warning "install.sh finished with code ${exit_code} - check output above."
     fi
 
     rm -rf "$tmp_dir"
