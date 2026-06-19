@@ -412,6 +412,13 @@ enable_terra() {
         && print_success "Terra repo enabled!" \
         || print_warning "Terra repo install failed - continuing without it."
 
+    # Import the Terra GPG key that terra-release dropped in /etc/pki/rpm-gpg/.
+    # Without this, makecache prompts interactively for every repo it checks.
+    print_step "Importing Terra GPG key..."
+    $SUDO_CMD rpm --import /etc/pki/rpm-gpg/RPM-GPG-KEY-terra* 2>/dev/null \
+        && print_success "Terra GPG key imported." \
+        || print_warning "Terra GPG key import failed - makecache may prompt."
+
     print_step "Refreshing repo metadata (RPMFusion + Terra)..."
     $SUDO_CMD dnf makecache --refresh \
         && print_success "Repo metadata refreshed!" \
