@@ -2,6 +2,8 @@
 
 Turn a fresh **Fedora** install into a ready-to-use **KDE Plasma** desktop, one command one outcome.
 
+<img width="1128" height="774" alt="FediCrap screenshot" src="FediCrap.webp" />
+
 ## Run it
 
 Install **Base Fedora** using the [**Fedora Everything**](https://fedoraproject.org/misc/#everything) ISO and once on the TTY, login and run the following command.
