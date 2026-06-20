@@ -904,9 +904,12 @@ prompt_layan_rice() {
         rm -rf "$tmp_dir"; echo ""; return 0
     fi
 
-    # Patch install.sh: drop -e from set -eu so a package failure does not abort
-    # the script before rice configs are reached. Skip the GRUB theme step
-    # entirely on Fedora - leave GRUB at its default.
+    # Patch install.sh:
+    # - drop -e from set -eu so a package failure does not abort the script
+    # - skip GRUB theme (not needed on Fedora)
+    # - skip the interactive fastfetch-to-bashrc prompt; xero-kde-fedora.sh
+    #   handles that itself via setup_fastfetch_hook (called after this function
+    #   returns), so the rice does not double-add or try to write to an unknown rc
     print_step "Patching install.sh for Fedora..."
     sed -i \
         -e 's/^set -eu$/set -u/' \
@@ -914,6 +917,7 @@ prompt_layan_rice() {
         -e '/set_grub_option GRUB_TIMEOUT/d' \
         -e '/set_grub_option GRUB_TIMEOUT_STYLE/d' \
         -e '/set_grub_option GRUB_GFXMODE/d' \
+        -e 's/^read -p "Enable fastfetch on terminal launch.*$/response=n  # fastfetch handled by xero-kde-fedora.sh/' \
         "$tmp_dir/xero-layan-git/install.sh"
     print_success "Patched."
 
@@ -992,12 +996,12 @@ install_plasma
 install_utilities
 install_user_packages
 finalize_system
-setup_fastfetch_hook
 setup_login_manager
 setup_branding
 
 term_reset            # restore normal full-screen scrolling
 prompt_layan_rice
+setup_fastfetch_hook  # runs after rice so it survives any .bashrc overwrite
 show_completion
 
 # Self-destruct only when run as a downloaded file (not via curl | bash, where
