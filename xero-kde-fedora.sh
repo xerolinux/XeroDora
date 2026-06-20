@@ -748,9 +748,15 @@ finalize_system() {
 }
 
 # ── fastfetch on terminal launch ──────────────────────────────────────────────
-# Append a fastfetch hook to the real user's ~/.bashrc. No other config touched.
+# Ask the user, then append a fastfetch hook to the real user's ~/.bashrc.
 setup_fastfetch_hook() {
-    print_phase "Adding fastfetch to shell startup"
+    print_phase "Fastfetch on terminal launch"
+    read -p "$(echo -e "${GREEN}Show system info (fastfetch) on every terminal open? ${NC}[${GREEN}y${NC}/${RED}N${NC}]: ")" -n 1 -r </dev/tty
+    echo ""
+    if [[ ! $REPLY =~ ^[Yy]$ ]]; then
+        print_warning "Skipping fastfetch hook."
+        echo ""; return 0
+    fi
     print_step "Hooking fastfetch into ~/.bashrc..."
 
     # Determine the real (non-root) user
