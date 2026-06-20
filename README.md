@@ -1,6 +1,6 @@
 # FedInstall
 
-Turn a fresh **Fedora** install into a ready-to-use **KDE Plasma** desktop, one command, run it from a TTY after the base install.
+Turn a fresh **Fedora** install into a ready-to-use **KDE Plasma** desktop, one command one outcome.
 
 ## Run it
 
