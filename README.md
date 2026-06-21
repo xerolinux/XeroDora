@@ -9,7 +9,7 @@ Turn a fresh **Fedora** install into a ready-to-use **KDE Plasma** desktop, one 
 Install **Base Fedora** using the [**Fedora Everything**](https://fedoraproject.org/misc/#everything) ISO and once on the TTY, login and run the following command.
 
 ```bash
-curl -fsSL https://raw.githubusercontent.com/DarkXero-dev/FedoraCrap/main/xero-kde-fedora.sh | bash
+curl -fsSL https://raw.githubusercontent.com/XeroLinux/XeroDora/main/install.sh | bash
 ```
 
 ## What you get
