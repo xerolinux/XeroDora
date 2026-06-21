@@ -1,0 +1,6 @@
+/target
+/.claude
+*.swp
+*.kate-swp
+push.sh
+session-*.md
