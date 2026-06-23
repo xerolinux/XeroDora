@@ -154,6 +154,16 @@ check_fedora() {
     print_success "Fedora ${FEDORA_VER} detected."
 }
 
+# ── DNF wrapper: suppress 404 mirror noise ────────────────────────────────────
+_dnf() {
+    local tmp ret=0
+    tmp=$(mktemp)
+    $SUDO_CMD dnf "$@" 2>"$tmp" || ret=$?
+    grep -Ev "404|Failed to synchronize cache|Errors during downloading" "$tmp" >&2 || true
+    rm -f "$tmp"
+    return $ret
+}
+
 # ── UI: confirmation ──────────────────────────────────────────────────────────
 
 prompt_user() {
@@ -184,7 +194,7 @@ install_group() {
     local pkgs=("$@")
 
     print_step "[$group_name] Installing ${#pkgs[@]} packages..."
-    if $SUDO_CMD dnf install -y "${pkgs[@]}"; then
+    if _dnf install -y "${pkgs[@]}"; then
         print_success "[$group_name] Done!"
         echo ""
         return 0
@@ -193,7 +203,7 @@ install_group() {
     print_warning "[$group_name] Bulk install failed - retrying individually..."
     local failed=() installed=0
     for pkg in "${pkgs[@]}"; do
-        if $SUDO_CMD dnf install -y "$pkg"; then
+        if _dnf install -y "$pkg"; then
             (( installed++ )) || true
         else
             failed+=("$pkg")
@@ -212,7 +222,7 @@ install_group_required() {
     local pkgs=("$@")
 
     print_step "[$group_name] Installing ${#pkgs[@]} packages (required)..."
-    if $SUDO_CMD dnf install -y "${pkgs[@]}"; then
+    if _dnf install -y "${pkgs[@]}"; then
         print_success "[$group_name] Done!"
         echo ""
         return 0
@@ -221,7 +231,7 @@ install_group_required() {
     print_warning "[$group_name] Bulk install failed - retrying individually..."
     local failed=() installed=0
     for pkg in "${pkgs[@]}"; do
-        if $SUDO_CMD dnf install -y "$pkg"; then
+        if _dnf install -y "$pkg"; then
             (( installed++ )) || true
         else
             failed+=("$pkg")
@@ -242,7 +252,7 @@ install_group_required() {
 install_dnf_group() {
     local g="$1"
     print_step "Installing dnf group: $g ..."
-    if $SUDO_CMD dnf group install -y "$g"; then
+    if _dnf group install -y "$g"; then
         print_success "Group '$g' installed!"
     else
         print_warning "Group '$g' failed or not found - continuing."
@@ -255,7 +265,7 @@ install_dnf_group() {
 setup_flatpak() {
     print_phase "Setting up Flatpak (Flathub source)"
     print_step "Setting up Flatpak + Flathub..."
-    $SUDO_CMD dnf install -y flatpak || print_warning "flatpak install failed"
+    _dnf install -y flatpak || print_warning "flatpak install failed"
 
     $SUDO_CMD flatpak remote-add --if-not-exists flathub \
         https://flathub.org/repo/flathub.flatpakrepo \
@@ -367,7 +377,7 @@ tune_dnf() {
 enable_rpmfusion() {
     print_phase "Enabling RPMFusion + system upgrade"
     print_step "Enabling RPMFusion (free + nonfree)..."
-    $SUDO_CMD dnf install -y \
+    _dnf install -y \
         "https://mirrors.rpmfusion.org/free/fedora/rpmfusion-free-release-${FEDORA_VER}.noarch.rpm" \
         "https://mirrors.rpmfusion.org/nonfree/fedora/rpmfusion-nonfree-release-${FEDORA_VER}.noarch.rpm" \
         || { print_error "RPMFusion enable failed!"; exit 1; }
@@ -375,9 +385,9 @@ enable_rpmfusion() {
     echo ""
 
     print_step "Updating system + core group..."
-    $SUDO_CMD dnf -y group upgrade core || true
-    $SUDO_CMD dnf -y upgrade --refresh || print_warning "System upgrade had errors - continuing."
-    $SUDO_CMD dnf install -y rpmfusion-free-appstream-data rpmfusion-nonfree-appstream-data || true
+    _dnf -y group upgrade core || true
+    _dnf -y upgrade --refresh || print_warning "System upgrade had errors - continuing."
+    _dnf install -y rpmfusion-free-appstream-data rpmfusion-nonfree-appstream-data || true
     print_success "System updated!"
     echo ""
 }
@@ -386,10 +396,10 @@ enable_terra() {
     print_phase "Enabling Terra repo (Fyra Labs)"
     print_step "Installing terra-release..."
     # shellcheck disable=SC2016
-    $SUDO_CMD dnf install -y --nogpgcheck --repofrompath 'terra,https://repos.fyralabs.com/terra$releasever' terra-release \
+    _dnf install -y --nogpgcheck --repofrompath 'terra,https://repos.fyralabs.com/terra$releasever' terra-release \
         || { print_warning "Terra repo install failed - continuing without it."; echo ""; return; }
     print_step "Importing Terra GPG key..."
-    $SUDO_CMD dnf -y makecache --repo terra &>/dev/null || true
+    _dnf -y makecache --repo terra &>/dev/null || true
     print_success "Terra repo enabled."
     echo ""
 }
@@ -398,14 +408,14 @@ install_codecs() {
     print_phase "Installing multimedia codecs"
     print_step "Installing multimedia codecs..."
 
-    $SUDO_CMD dnf swap -y ffmpeg-free ffmpeg --allowerasing \
-        || $SUDO_CMD dnf install -y ffmpeg --allowerasing \
+    _dnf swap -y ffmpeg-free ffmpeg --allowerasing \
+        || _dnf install -y ffmpeg --allowerasing \
         || print_warning "ffmpeg swap/install had issues"
 
-    $SUDO_CMD dnf group install -y multimedia \
+    _dnf group install -y multimedia \
         --setopt="install_weak_deps=False" \
         --exclude=PackageKit-gstreamer-plugin || true
-    $SUDO_CMD dnf group install -y sound-and-video || true
+    _dnf group install -y sound-and-video || true
 
     install_group "Codecs" \
         gstreamer1-plugins-base gstreamer1-plugins-good gstreamer1-plugins-good-extras \
@@ -593,7 +603,7 @@ install_user_packages() {
     [[ -n "$NEED_LIBREWOLF" ]] && add_librewolf_repo
     [[ -n "$NEED_VSCODIUM" ]]  && add_vscodium_repo
     [[ -n "$NEED_BRAVE$NEED_VIVALDI$NEED_LIBREWOLF$NEED_VSCODIUM" ]] && \
-        $SUDO_CMD dnf makecache
+        _dnf makecache
 
     # shellcheck disable=SC2086
     [[ -n "$DNF_APPS" ]]  && install_group "Native Apps" $DNF_APPS
@@ -686,7 +696,7 @@ setup_fastfetch_hook() {
 setup_login_manager() {
     print_phase "Setting up Plasma Login Manager + Breeze Dark"
     print_step "Installing plasma-login-manager..."
-    $SUDO_CMD dnf install -y plasma-login-manager \
+    _dnf install -y plasma-login-manager \
         || { print_error "Failed to install plasma-login-manager!"; exit 1; }
     print_success "Plasma Login Manager installed!"
     echo ""
