@@ -109,9 +109,6 @@ SUDO_KEEPALIVE_PID=""
 setup_sudo() {
     if [[ ${EUID:-0} -eq 0 ]]; then
         if [[ -n "${SUDO_USER:-}" && "${SUDO_USER}" != "root" ]]; then
-            # Launched via `sudo bash script.sh` - works but rice configs will
-            # land in /root. Running as your normal user is preferred:
-            #   bash xero-kde-fedora.sh
             print_warning "Running as root via sudo. Prefer: bash xero-kde-fedora.sh (no sudo)"
             print_warning "Rice/theme configs will target ${SUDO_USER}'s home via sudo -H -u."
             sleep 2
@@ -125,8 +122,6 @@ setup_sudo() {
             exit 1
         fi
         SUDO_CMD="sudo"
-        # Cache credentials now and keep the timestamp alive for the full install.
-        # A typical KDE install takes 20-40 min - well past the default 15 min expiry.
         print_step "Caching sudo credentials..."
         sudo -v || { print_error "sudo auth failed."; exit 1; }
         ( while true; do sleep 50; sudo -n true 2>/dev/null; done ) &
@@ -184,9 +179,6 @@ prompt_user() {
 
 # ── Package install helpers (dnf) ─────────────────────────────────────────────
 
-# install_group <name> <pkg...>
-# Bulk install; on failure retry each package individually so one missing/bad
-# package never blocks the rest. Never aborts - reports skipped as warnings.
 install_group() {
     local group_name="$1"; shift
     local pkgs=("$@")
@@ -215,7 +207,6 @@ install_group() {
     return 0
 }
 
-# install_group_required <name> <pkg...> - aborts if ZERO installed.
 install_group_required() {
     local group_name="$1"; shift
     local pkgs=("$@")
@@ -248,7 +239,6 @@ install_group_required() {
     return 0
 }
 
-# install_dnf_group <comterm group-id>... - install a dnf comps group, non-fatal.
 install_dnf_group() {
     local g="$1"
     print_step "Installing dnf group: $g ..."
@@ -267,19 +257,14 @@ setup_flatpak() {
     print_step "Setting up Flatpak + Flathub..."
     $SUDO_CMD dnf install -y flatpak || print_warning "flatpak install failed"
 
-    # Add the FULL Flathub remote (system-wide).
     $SUDO_CMD flatpak remote-add --if-not-exists flathub \
         https://flathub.org/repo/flathub.flatpakrepo \
         && print_success "Flathub remote added!" \
         || print_warning "Could not add Flathub remote (non-critical)"
 
-    # Fedora ships its Flathub pre-filtered to a subset - drop the filter and
-    # make sure it's enabled so the complete Flathub catalog is available.
     $SUDO_CMD flatpak remote-modify --enable flathub 2>/dev/null || true
     $SUDO_CMD flatpak remote-modify --no-filter flathub 2>/dev/null || true
 
-    # Disable Fedora's own flatpak remotes (the OCI "fedora" ones) - an inferior,
-    # half-maintained subset. Everything should come from Flathub instead.
     print_step "Disabling Fedora flatpak remotes..."
     for r in fedora fedora-testing; do
         if $SUDO_CMD flatpak remotes --system 2>/dev/null | awk '{print $1}' | grep -qx "$r"; then
@@ -289,7 +274,6 @@ setup_flatpak() {
         fi
     done
 
-    # Pin Flathub as the preferred source (lower number = higher priority).
     $SUDO_CMD flatpak remote-modify --prio=1 flathub 2>/dev/null || true
     echo ""
 }
@@ -359,8 +343,6 @@ add_vscodium_repo() {
 
 # ── System setup: RPMFusion + codecs ──────────────────────────────────────────
 
-# Patch dnf BEFORE any install: fastest mirrors + 25 parallel downloads.
-# set_dnf_opt <key> <value> - idempotent (replace existing line or append).
 set_dnf_opt() {
     local key="$1" val="$2"
     if $SUDO_CMD grep -q "^${key}=" /etc/dnf/dnf.conf 2>/dev/null; then
@@ -374,8 +356,7 @@ tune_dnf() {
     print_phase "Tuning dnf (fastest mirrors, 20 parallel downloads)"
     print_step "Patching /etc/dnf/dnf.conf..."
     $SUDO_CMD touch /etc/dnf/dnf.conf 2>/dev/null || true
-    # librepo (dnf5) hard-caps parallel downloads at 20 - higher = "Bad value
-    # of LRO_MAXPARALLELDOWNLOADS" and all metadata fails.
+    # dnf5/librepo hard-caps at 20; higher values error on all metadata
     set_dnf_opt max_parallel_downloads 20
     set_dnf_opt fastestmirror True
     set_dnf_opt defaultyes True
@@ -397,7 +378,6 @@ enable_rpmfusion() {
     print_step "Updating system + core group..."
     $SUDO_CMD dnf -y group upgrade core || true
     $SUDO_CMD dnf -y upgrade --refresh || print_warning "System upgrade had errors - continuing."
-    # appstream metadata for KDE Discover / Flatpak
     $SUDO_CMD dnf install -y rpmfusion-free-appstream-data rpmfusion-nonfree-appstream-data || true
     print_success "System updated!"
     echo ""
@@ -406,26 +386,8 @@ enable_rpmfusion() {
 enable_terra() {
     print_phase "Enabling Terra repo (Fyra Labs)"
 
-    # terra.repo (from terra-release) sets:
-    #   gpgkey=file:///etc/pki/rpm-gpg/RPM-GPG-KEY-terra$releasever
-    #   repo_gpgcheck=1
-    # DNF5/librepo reads the key from that file path to verify repomd.xml.
-    # We must save the key there BEFORE makecache runs, otherwise DNF5 errors
-    # with "Signing key not found" even if rpm --import was done.
-    # Key fingerprint: AE09157A4DE88B497EA1D5D300CDAB43DE226D6F (Terra $releasever)
-    print_step "Fetching Terra GPG key..."
-    local key_path="/etc/pki/rpm-gpg/RPM-GPG-KEY-terra${FEDORA_VER}"
-    local key_ok=0
-    if curl -fsSL "https://repos.fyralabs.com/terra${FEDORA_VER}/key.asc" \
-            -o /tmp/terra-key.asc 2>/dev/null; then
-        $SUDO_CMD cp /tmp/terra-key.asc "$key_path" 2>/dev/null && \
-        $SUDO_CMD rpm --import "$key_path" 2>/dev/null && \
-        key_ok=1 && print_success "Terra GPG key saved to ${key_path}."
-    fi
-    rm -f /tmp/terra-key.asc
-    [[ $key_ok -eq 0 ]] && \
-        print_warning "Could not fetch Terra GPG key - will disable repo_gpgcheck."
-
+    # --nogpgcheck bootstraps the install; terra-release depends on terra-gpg-keys
+    # which drops the key file terra.repo's gpgkey= points to, satisfying repo_gpgcheck.
     print_step "Installing terra-release..."
     # shellcheck disable=SC2016
     local terra_url='https://repos.fyralabs.com/terra$releasever'
@@ -435,14 +397,8 @@ enable_terra() {
         && print_success "Terra repo enabled." \
         || { print_warning "Terra repo install failed - continuing without it."; return 0; }
 
-    # If key fetch failed, fall back to disabling repo_gpgcheck so makecache
-    # does not hard-error. terra.repo already has the correct gpgkey= path so
-    # no patching needed when the key file is present.
-    if [[ $key_ok -eq 0 && -f /etc/yum.repos.d/terra.repo ]]; then
-        $SUDO_CMD sed -i 's/^repo_gpgcheck=1/repo_gpgcheck=0/' \
-            /etc/yum.repos.d/terra.repo 2>/dev/null || true
-        print_warning "repo_gpgcheck disabled in terra.repo (fallback)."
-    fi
+    local key_path="/etc/pki/rpm-gpg/RPM-GPG-KEY-terra${FEDORA_VER}"
+    [[ -f "$key_path" ]] && $SUDO_CMD rpm --import "$key_path" 2>/dev/null || true
 
     print_step "Refreshing repo metadata (RPMFusion + Terra)..."
     $SUDO_CMD dnf clean metadata
@@ -456,12 +412,10 @@ install_codecs() {
     print_phase "Installing multimedia codecs"
     print_step "Installing multimedia codecs..."
 
-    # Swap the limited ffmpeg-free for the full RPMFusion ffmpeg
     $SUDO_CMD dnf swap -y ffmpeg-free ffmpeg --allowerasing \
         || $SUDO_CMD dnf install -y ffmpeg --allowerasing \
         || print_warning "ffmpeg swap/install had issues"
 
-    # Multimedia + sound-and-video groups (full gstreamer plugin set)
     $SUDO_CMD dnf group install -y multimedia \
         --setopt="install_weak_deps=False" \
         --exclude=PackageKit-gstreamer-plugin || true
@@ -484,10 +438,8 @@ install_plasma() {
     print_phase "Installing KDE Plasma desktop" \
         "☕ This phase pulls a lot of packages and may take a while - sit back, grab a coffee."
     print_step "Installing KDE Plasma desktop..."
-    # Fedora's curated Plasma group - guarantees a complete, existing package set.
     install_dnf_group kde-desktop-environment
 
-    # Belt-and-suspenders core bits in case the group is trimmed.
     install_group_required "KDE Plasma Core" \
         plasma-workspace plasma-desktop plasma-systemmonitor kscreen \
         plasma-nm plasma-pa powerdevil kinfocenter systemsettings \
@@ -572,39 +524,16 @@ customization_prompts() {
     echo -e "  ${GREEN}11)${NC} ZapZap (WA) [F]     ${GREEN}12)${NC} Discord [F]         ${GREEN}13)${NC} Vesktop [F]"
     echo -e "  ${GREEN}14)${NC} Telegram            ${GREEN}15)${NC} Ferdium [F]"
     echo ""
-    echo -e "${PURPLE}-- DEVELOPMENT TOOLS ------------------------------------------------------${NC}"
+    echo -e "${YELLOW}-- OTHER / MISC -----------------------------------------------------------${NC}"
     echo ""
-    echo -e "  ${PURPLE}16)${NC} Hugo                ${PURPLE}17)${NC} Meld                ${PURPLE}18)${NC} VSCodium [R]"
-    echo -e "  ${PURPLE}19)${NC} GitHub Desktop [F]"
-    echo ""
-    echo -e "${YELLOW}-- PASSWORD MANAGERS -------------------------------------------------------${NC}"
-    echo ""
-    echo -e "  ${YELLOW}20)${NC} KeePassXC           ${YELLOW}21)${NC} Bitwarden [F]       ${YELLOW}22)${NC} pass"
-    echo ""
-    echo -e "${BLUE}-- CREATIVE & IMAGING -----------------------------------------------------${NC}"
-    echo ""
-    echo -e "  ${BLUE}23)${NC} GIMP                ${BLUE}24)${NC} Krita               ${BLUE}25)${NC} Inkscape"
-    echo ""
-    echo -e "${RED}-- MUSIC & AUDIO ----------------------------------------------------------${NC}"
-    echo ""
-    echo -e "  ${RED}26)${NC} MPV                 ${RED}27)${NC} Amarok              ${RED}28)${NC} Spotify [F]"
-    echo -e "  ${RED}29)${NC} Tenacity [F]        ${RED}30)${NC} JamesDSP [F]        ${RED}31)${NC} EasyEffects"
-    echo ""
-    echo -e "${GREEN}-- VIDEO EDITING ----------------------------------------------------------${NC}"
-    echo ""
-    echo -e "  ${GREEN}32)${NC} MakeMKV [F]         ${GREEN}33)${NC} Kdenlive            ${GREEN}34)${NC} Avidemux [F]"
-    echo -e "  ${GREEN}35)${NC} MKVToolNix"
-    echo ""
-    echo -e "${CYAN}-- OFFICE -----------------------------------------------------------------${NC}"
-    echo ""
-    echo -e "  ${CYAN}36)${NC} LibreOffice"
+    echo -e "  ${YELLOW}16)${NC} MPV                 ${YELLOW}17)${NC} Amarok              ${YELLOW}18)${NC} Kdenlive"
+    echo -e "  ${YELLOW}19)${NC} VSCodium [R]        ${YELLOW}20)${NC} Meld"
     echo ""
     read -p ">> Your choices: " user_input </dev/tty
 
-    DNF_APPS=""        # native repo / rpmfusion packages
-    FLAT_APPS=""       # flathub app-ids
+    DNF_APPS=""
+    FLAT_APPS=""
     NEED_BRAVE="" NEED_VIVALDI="" NEED_LIBREWOLF="" NEED_VSCODIUM=""
-    WANTS_LIBREOFFICE=""
     WANT_TERRA=""
 
     for choice in $user_input; do
@@ -624,86 +553,21 @@ customization_prompts() {
             13) FLAT_APPS="$FLAT_APPS dev.vencord.Vesktop" ;;
             14) DNF_APPS="$DNF_APPS telegram-desktop" ;;
             15) FLAT_APPS="$FLAT_APPS org.ferdium.Ferdium" ;;
-            16) DNF_APPS="$DNF_APPS hugo" ;;
-            17) DNF_APPS="$DNF_APPS meld" ;;
-            18) NEED_VSCODIUM="yes"; DNF_APPS="$DNF_APPS codium" ;;
-            19) FLAT_APPS="$FLAT_APPS io.github.shiftey.Desktop" ;;
-            20) DNF_APPS="$DNF_APPS keepassxc" ;;
-            21) FLAT_APPS="$FLAT_APPS com.bitwarden.desktop" ;;
-            22) DNF_APPS="$DNF_APPS pass" ;;
-            23) DNF_APPS="$DNF_APPS gimp" ;;
-            24) DNF_APPS="$DNF_APPS krita" ;;
-            25) DNF_APPS="$DNF_APPS inkscape" ;;
-            26) DNF_APPS="$DNF_APPS mpv" ;;
-            27) DNF_APPS="$DNF_APPS amarok" ;;
-            28) FLAT_APPS="$FLAT_APPS com.spotify.Client" ;;
-            29) FLAT_APPS="$FLAT_APPS org.tenacityaudio.Tenacity" ;;
-            30) FLAT_APPS="$FLAT_APPS me.timschneeberger.jdsp4linux" ;;
-            31) DNF_APPS="$DNF_APPS easyeffects" ;;
-            32) FLAT_APPS="$FLAT_APPS com.makemkv.MakeMKV" ;;
-            33) DNF_APPS="$DNF_APPS kdenlive" ;;
-            34) FLAT_APPS="$FLAT_APPS org.avidemux.Avidemux" ;;
-            35) DNF_APPS="$DNF_APPS mkvtoolnix-gui" ;;
-            36) WANTS_LIBREOFFICE="yes" ;;
+            16) DNF_APPS="$DNF_APPS mpv" ;;
+            17) DNF_APPS="$DNF_APPS amarok" ;;
+            18) DNF_APPS="$DNF_APPS kdenlive" ;;
+            19) NEED_VSCODIUM="yes"; DNF_APPS="$DNF_APPS codium" ;;
+            20) DNF_APPS="$DNF_APPS meld" ;;
         esac
     done
 
     DNF_APPS="$(echo "$DNF_APPS" | xargs)"
     FLAT_APPS="$(echo "$FLAT_APPS" | xargs)"
 
-    # ── LibreOffice language ──────────────────────────────────────────────────
-    LO_PKGS=""
-    if [[ -n "$WANTS_LIBREOFFICE" ]]; then
-        echo ""
-        echo -e "${CYAN}LibreOffice selected -- choose language (UI langpack + spellcheck):${NC}"
-        echo ""
-        LO_LANG_MENU=(
-            "Use system locale|SYSTEM"
-            "English|en"
-            "German|de"
-            "French|fr"
-            "Spanish|es"
-            "Italian|it"
-            "Dutch|nl"
-            "Polish|pl"
-            "Russian|ru"
-            "Greek|el"
-            "Portuguese|pt"
-            "Custom (enter lang code)|CUSTOM"
-        )
-        for i in "${!LO_LANG_MENU[@]}"; do
-            idx=$((i + 1))
-            IFS='|' read -r label code <<< "${LO_LANG_MENU[$i]}"
-            echo -e "  ${BLUE}${idx})${NC} ${label}"
-        done
-        echo ""
-        read -p "Enter choice (default: English): " lang_choice </dev/tty
-        [[ -z "$lang_choice" ]] && lang_choice=2
-        if ! [[ "$lang_choice" =~ ^[0-9]+$ ]] || (( lang_choice < 1 || lang_choice > ${#LO_LANG_MENU[@]} )); then
-            lang_choice=2
-        fi
-        IFS='|' read -r _ LO_CODE <<< "${LO_LANG_MENU[$((lang_choice - 1))]}"
-
-        if [[ "$LO_CODE" == "SYSTEM" ]]; then
-            sys_loc="$(locale 2>/dev/null | awk -F= '/^LANG=/{print $2}' | tr -d '"')"
-            sys_loc="${sys_loc:-en_US}"
-            LO_CODE="${sys_loc%%_*}"
-        elif [[ "$LO_CODE" == "CUSTOM" ]]; then
-            read -p "Enter lang code (e.g. en, de, fr, es, pt): " LO_CODE </dev/tty
-            LO_CODE="${LO_CODE%%_*}"
-            LO_CODE="${LO_CODE:-en}"
-        fi
-        LO_CODE="${LO_CODE,,}"
-        # libreoffice-langpack-* and hunspell-* exist for most codes; missing
-        # ones are skipped by install_group's individual retry.
-        LO_PKGS="libreoffice libreoffice-langpack-${LO_CODE} hunspell hunspell-${LO_CODE}"
-    fi
-
     # ── Terra repo ────────────────────────────────────────────────────────────
     echo ""
     echo -e "${PURPLE}═══════════════════════════════════════════════════════════════════════${NC}"
     echo -e "  ${CYAN}Terra repo (Fyra Labs) adds extra packages not in Fedora/RPMFusion.${NC}"
-    echo -e "  ${YELLOW}Note: requires GPG key trust; may show a prompt on first use.${NC}"
     echo -e "${PURPLE}═══════════════════════════════════════════════════════════════════════${NC}"
     read -p "$(echo -e "${GREEN}Enable Terra repo? ${NC}[${GREEN}y${NC}/${RED}N${NC}]: ")" -n 1 -r </dev/tty
     echo ""
@@ -715,8 +579,7 @@ customization_prompts() {
     echo -e "${GREEN}Selection Summary:${NC}"
     [[ -n "$DNF_APPS" ]]  && echo -e "  Native (dnf):   ${CYAN}$DNF_APPS${NC}"
     [[ -n "$FLAT_APPS" ]] && echo -e "  Flatpak:        ${CYAN}$FLAT_APPS${NC}"
-    [[ -n "$LO_PKGS" ]]   && echo -e "  LibreOffice:    ${CYAN}$LO_PKGS${NC}"
-    if [[ -z "$DNF_APPS$FLAT_APPS$LO_PKGS" ]]; then
+    if [[ -z "$DNF_APPS$FLAT_APPS" ]]; then
         echo -e "  ${YELLOW}(no apps selected)${NC}"
     fi
     echo -e "${PURPLE}═══════════════════════════════════════════════════════════════════════${NC}"
@@ -729,7 +592,6 @@ install_user_packages() {
     print_step "Installing user-selected apps..."
     echo ""
 
-    # Add vendor repos only for what was selected
     [[ -n "$NEED_BRAVE" ]]     && add_brave_repo
     [[ -n "$NEED_VIVALDI" ]]   && add_vivaldi_repo
     [[ -n "$NEED_LIBREWOLF" ]] && add_librewolf_repo
@@ -739,8 +601,6 @@ install_user_packages() {
 
     # shellcheck disable=SC2086
     [[ -n "$DNF_APPS" ]]  && install_group "Native Apps" $DNF_APPS
-    # shellcheck disable=SC2086
-    [[ -n "$LO_PKGS" ]]   && install_group "LibreOffice" $LO_PKGS
     # shellcheck disable=SC2086
     [[ -n "$FLAT_APPS" ]] && flatpak_install $FLAT_APPS
 
@@ -794,7 +654,6 @@ setup_fastfetch_hook() {
     fi
     print_step "Hooking fastfetch into ~/.bashrc..."
 
-    # Determine the real (non-root) user
     local user home
     if [[ -n "${SUDO_USER:-}" && "${SUDO_USER}" != "root" ]]; then
         user="$SUDO_USER"
@@ -837,7 +696,6 @@ setup_login_manager() {
     echo ""
 
     print_step "Enabling plasmalogin.service..."
-    # Disable any other display manager first (harmless if absent).
     $SUDO_CMD systemctl disable gdm.service &>/dev/null || true
     $SUDO_CMD systemctl disable sddm.service &>/dev/null || true
     $SUDO_CMD systemctl enable plasmalogin.service \
@@ -845,9 +703,6 @@ setup_login_manager() {
         || { print_error "Failed to enable plasmalogin.service!"; exit 1; }
     echo ""
 
-    # Make Breeze Dark the system-wide Plasma default (look-and-feel + color
-    # scheme). Written to /etc/xdg so it applies to every user who hasn't picked
-    # their own theme - no per-user config files touched.
     print_step "Setting Breeze Dark as default Plasma theme..."
     $SUDO_CMD mkdir -p /etc/xdg
     printf '%s\n' \
@@ -867,8 +722,6 @@ setup_login_manager() {
 setup_branding() {
     print_phase "Applying XeroLinux Fedora branding"
 
-    # Patch a key=value line in /etc/os-release: replace if present, append if not.
-    # Keeps ID=fedora and VERSION_ID untouched (DNF/RPM rely on them).
     patch_os_release() {
         local key="$1" val="$2"
         if $SUDO_CMD grep -q "^${key}=" /etc/os-release 2>/dev/null; then
@@ -899,8 +752,6 @@ setup_branding() {
         && print_success "/etc/lsb-release written!" \
         || print_warning "Could not write /etc/lsb-release (non-critical)"
 
-    # Fix GRUB menu entries so they show "XeroLinux Fedora" instead of "Fedora Linux".
-    # Two parts: BLS entry files (current boot entries) + GRUB_DISTRIBUTOR (future kernels).
     print_step "Patching GRUB menu titles..."
     local bls_patched=0
     for f in /boot/loader/entries/*.conf; do
@@ -911,7 +762,6 @@ setup_branding() {
         && print_success "BLS boot entries updated." \
         || print_warning "No BLS entries found at /boot/loader/entries/ - skipping."
 
-    # GRUB_DISTRIBUTOR controls the title for kernels installed in the future.
     if [[ -f /etc/default/grub ]]; then
         $SUDO_CMD sed -i \
             's|^GRUB_DISTRIBUTOR=.*|GRUB_DISTRIBUTOR="XeroLinux Fedora"|' \
@@ -920,7 +770,6 @@ setup_branding() {
             || print_warning "Could not patch /etc/default/grub."
     fi
 
-    # Regenerate grub.cfg so the changes are picked up immediately.
     print_step "Regenerating grub.cfg..."
     if $SUDO_CMD grub2-mkconfig -o /boot/grub2/grub.cfg 2>/dev/null; then
         print_success "grub.cfg regenerated."
@@ -957,8 +806,6 @@ prompt_layan_rice() {
         echo ""; return 0
     fi
 
-    # Resolve the real (non-root) user. install.sh copies configs to $HOME, so
-    # running it as root deposits everything in /root instead of the user's home.
     local real_user=""
     if [[ -n "${SUDO_USER:-}" && "${SUDO_USER}" != "root" ]]; then
         real_user="$SUDO_USER"
@@ -976,12 +823,6 @@ prompt_layan_rice() {
         rm -rf "$tmp_dir"; echo ""; return 0
     fi
 
-    # Patch install.sh:
-    # - drop -e from set -eu so a package failure does not abort the script
-    # - skip GRUB theme (not needed on Fedora)
-    # - skip the interactive fastfetch-to-bashrc prompt; xero-kde-fedora.sh
-    #   handles that itself via setup_fastfetch_hook (called after this function
-    #   returns), so the rice does not double-add or try to write to an unknown rc
     print_step "Patching install.sh for Fedora..."
     sed -i \
         -e 's/^set -eu$/set -u/' \
@@ -995,30 +836,22 @@ prompt_layan_rice() {
 
     local exit_code=0
     if [[ "${EUID:-0}" -ne 0 ]]; then
-        # Normal user (preferred): $HOME is already correct, install.sh uses its
-        # own sudo for root writes. Just run it directly with TTY access.
         print_step "Running Layan install.sh..."
         ( cd "$tmp_dir/xero-layan-git" && bash install.sh ) </dev/tty \
             || exit_code=$?
     elif [[ -n "$real_user" ]]; then
-        # Running as root (via sudo): drop to the real user so configs land in
-        # their home. sudo -H ensures $HOME is set correctly. install.sh re-
-        # escalates via its own `sudo ./Grub.sh` for system writes.
         print_step "Running Layan install.sh as ${real_user}..."
         chown -R "${real_user}:${real_user}" "$tmp_dir"
         sudo -H -u "$real_user" bash -c \
             "cd '$tmp_dir/xero-layan-git' && bash install.sh" </dev/tty \
             || exit_code=$?
     else
-        # True root with no detectable normal user (bare root login).
         print_step "Running Layan install.sh as root..."
         ( cd "$tmp_dir/xero-layan-git" && bash install.sh ) </dev/tty \
             || exit_code=$?
     fi
 
-    # Verify rice landed - kvantum config is one of the first things copied.
-    local rice_ok=0
-    local check_home="${HOME}"
+    local rice_ok=0 check_home="${HOME}"
     [[ "${EUID:-0}" -eq 0 && -n "$real_user" ]] && \
         check_home="$(getent passwd "$real_user" | cut -d: -f6)"
     [[ -f "${check_home}/.config/kvantum/kvantum.kvconfig" ]] && rice_ok=1
@@ -1057,7 +890,7 @@ check_fedora
 prompt_user
 customization_prompts
 
-term_init_sticky      # pin phase headers to the top; output scrolls below
+term_init_sticky
 
 tune_dnf
 enable_rpmfusion
@@ -1071,9 +904,9 @@ finalize_system
 setup_login_manager
 setup_branding
 
-term_reset            # restore normal full-screen scrolling
+term_reset
 prompt_layan_rice
-setup_fastfetch_hook  # runs after rice so it survives any .bashrc overwrite
+setup_fastfetch_hook
 show_completion
 
 # Self-destruct only when run as a downloaded file (not via curl | bash, where
