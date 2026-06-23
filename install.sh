@@ -164,7 +164,8 @@ check_fedora() {
 prompt_user() {
     print_header
     echo -e "${CYAN}This script will:${NC}"
-    echo -e "  ${BLUE}•${NC} Enable RPMFusion (free + nonfree) + Terra (Fyra Labs) + Flathub"
+    echo -e "  ${BLUE}•${NC} Enable RPMFusion (free + nonfree) + Flathub"
+    echo -e "  ${BLUE}•${NC} Optionally enable Terra repo (Fyra Labs)"
     echo -e "  ${BLUE}•${NC} Install KDE Plasma Desktop + curated KDE apps"
     echo -e "  ${BLUE}•${NC} Install multimedia codecs (ffmpeg, gstreamer, hw accel)"
     echo -e "  ${BLUE}•${NC} Install a curated utility/font set"
@@ -406,18 +407,31 @@ enable_terra() {
     print_phase "Enabling Terra repo (Fyra Labs)"
     print_step "Installing terra-release via --repofrompath..."
     # shellcheck disable=SC2016
-    $SUDO_CMD dnf install -y --nogpgcheck \
+    if ! $SUDO_CMD dnf install -y --nogpgcheck \
         --repofrompath 'terra,https://repos.fyralabs.com/terra$releasever' \
-        terra-release \
-        && print_success "Terra repo enabled!" \
-        || print_warning "Terra repo install failed - continuing without it."
+        terra-release; then
+        print_warning "Terra repo install failed - continuing without it."
+        return 0
+    fi
+    print_success "Terra repo enabled!"
 
-    # Import the Terra GPG key that terra-release dropped in /etc/pki/rpm-gpg/.
-    # Without this, makecache prompts interactively for every repo it checks.
+    # Import the GPG key terra-release dropped in /etc/pki/rpm-gpg/.
+    # Loop (not glob) so we handle zero-match gracefully; fall back to upstream
+    # URL if no file was found (different key filename or install was partial).
     print_step "Importing Terra GPG key..."
-    $SUDO_CMD rpm --import /etc/pki/rpm-gpg/RPM-GPG-KEY-terra* 2>/dev/null \
+    local key_imported=0
+    for f in /etc/pki/rpm-gpg/RPM-GPG-KEY-terra*; do
+        [[ -f "$f" ]] || continue
+        $SUDO_CMD rpm --import "$f" 2>/dev/null && key_imported=1
+    done
+    if [[ $key_imported -eq 0 ]]; then
+        $SUDO_CMD rpm --import \
+            "https://repos.fyralabs.com/terra${FEDORA_VER}/pubkey.gpg" 2>/dev/null \
+            && key_imported=1
+    fi
+    [[ $key_imported -eq 1 ]] \
         && print_success "Terra GPG key imported." \
-        || print_warning "Terra GPG key import failed - makecache may prompt."
+        || print_warning "Terra GPG key import failed - makecache may still prompt."
 
     print_step "Refreshing repo metadata (RPMFusion + Terra)..."
     $SUDO_CMD dnf clean metadata
@@ -472,7 +486,7 @@ install_plasma() {
     install_group "KDE Applications" \
         dolphin dolphin-plugins konsole kate ark gwenview okular spectacle \
         filelight kfind kcalc kcharselect kcolorchooser kgpg kwalletmanager5 \
-        kdeconnectd krfb krdc skanlite kamoso k3b yakuake kio-extras kio-admin \
+        kde-connect krfb krdc skanlite kamoso k3b yakuake kio-extras kio-admin \
         kio-gdrive kdenetwork-filesharing kcolorchooser markdownpart qalculate-qt \
         kdegraphics-thumbnailers ffmpegthumbs
 
@@ -540,39 +554,39 @@ customization_prompts() {
     echo -e "  ${CYAN} 1)${NC} Floorp [F]          ${CYAN} 2)${NC} Firefox             ${CYAN} 3)${NC} Brave [R]"
     echo -e "  ${CYAN} 4)${NC} LibreWolf [R]       ${CYAN} 5)${NC} Vivaldi [R]         ${CYAN} 6)${NC} Tor Browser"
     echo -e "  ${CYAN} 7)${NC} Mullvad Browser [F] ${CYAN} 8)${NC} Ungoogled Chrom [F] ${CYAN} 9)${NC} FileZilla"
-    echo -e "  ${CYAN}10)${NC} Helium (n/a Fedora) ${CYAN}11)${NC} Zen Browser [F]"
+    echo -e "  ${CYAN}10)${NC} Zen Browser [F]"
     echo ""
     echo -e "${GREEN}-- SOCIAL & COMMUNICATION -------------------------------------------------${NC}"
     echo ""
-    echo -e "  ${GREEN}12)${NC} ZapZap (WA) [F]     ${GREEN}13)${NC} Discord [F]         ${GREEN}14)${NC} Vesktop [F]"
-    echo -e "  ${GREEN}15)${NC} Telegram            ${GREEN}16)${NC} Ferdium [F]"
+    echo -e "  ${GREEN}11)${NC} ZapZap (WA) [F]     ${GREEN}12)${NC} Discord [F]         ${GREEN}13)${NC} Vesktop [F]"
+    echo -e "  ${GREEN}14)${NC} Telegram            ${GREEN}15)${NC} Ferdium [F]"
     echo ""
     echo -e "${PURPLE}-- DEVELOPMENT TOOLS ------------------------------------------------------${NC}"
     echo ""
-    echo -e "  ${PURPLE}17)${NC} Hugo                ${PURPLE}18)${NC} Meld                ${PURPLE}19)${NC} VSCodium [R]"
-    echo -e "  ${PURPLE}20)${NC} GitHub Desktop [F]"
+    echo -e "  ${PURPLE}16)${NC} Hugo                ${PURPLE}17)${NC} Meld                ${PURPLE}18)${NC} VSCodium [R]"
+    echo -e "  ${PURPLE}19)${NC} GitHub Desktop [F]"
     echo ""
     echo -e "${YELLOW}-- PASSWORD MANAGERS -------------------------------------------------------${NC}"
     echo ""
-    echo -e "  ${YELLOW}21)${NC} KeePassXC           ${YELLOW}22)${NC} Bitwarden [F]       ${YELLOW}23)${NC} pass"
+    echo -e "  ${YELLOW}20)${NC} KeePassXC           ${YELLOW}21)${NC} Bitwarden [F]       ${YELLOW}22)${NC} pass"
     echo ""
     echo -e "${BLUE}-- CREATIVE & IMAGING -----------------------------------------------------${NC}"
     echo ""
-    echo -e "  ${BLUE}24)${NC} GIMP                ${BLUE}25)${NC} Krita               ${BLUE}26)${NC} Inkscape"
+    echo -e "  ${BLUE}23)${NC} GIMP                ${BLUE}24)${NC} Krita               ${BLUE}25)${NC} Inkscape"
     echo ""
     echo -e "${RED}-- MUSIC & AUDIO ----------------------------------------------------------${NC}"
     echo ""
-    echo -e "  ${RED}27)${NC} MPV                 ${RED}28)${NC} Amarok              ${RED}29)${NC} Spotify [F]"
-    echo -e "  ${RED}30)${NC} Tenacity [F]        ${RED}31)${NC} JamesDSP [F]        ${RED}32)${NC} EasyEffects"
+    echo -e "  ${RED}26)${NC} MPV                 ${RED}27)${NC} Amarok              ${RED}28)${NC} Spotify [F]"
+    echo -e "  ${RED}29)${NC} Tenacity [F]        ${RED}30)${NC} JamesDSP [F]        ${RED}31)${NC} EasyEffects"
     echo ""
     echo -e "${GREEN}-- VIDEO EDITING ----------------------------------------------------------${NC}"
     echo ""
-    echo -e "  ${GREEN}33)${NC} MakeMKV [F]         ${GREEN}34)${NC} Kdenlive            ${GREEN}35)${NC} Avidemux [F]"
-    echo -e "  ${GREEN}36)${NC} MKVToolNix"
+    echo -e "  ${GREEN}32)${NC} MakeMKV [F]         ${GREEN}33)${NC} Kdenlive            ${GREEN}34)${NC} Avidemux [F]"
+    echo -e "  ${GREEN}35)${NC} MKVToolNix"
     echo ""
     echo -e "${CYAN}-- OFFICE -----------------------------------------------------------------${NC}"
     echo ""
-    echo -e "  ${CYAN}37)${NC} LibreOffice"
+    echo -e "  ${CYAN}36)${NC} LibreOffice"
     echo ""
     read -p ">> Your choices: " user_input </dev/tty
 
@@ -580,6 +594,7 @@ customization_prompts() {
     FLAT_APPS=""       # flathub app-ids
     NEED_BRAVE="" NEED_VIVALDI="" NEED_LIBREWOLF="" NEED_VSCODIUM=""
     WANTS_LIBREOFFICE=""
+    WANT_TERRA=""
 
     for choice in $user_input; do
         case $choice in
@@ -592,34 +607,33 @@ customization_prompts() {
             7)  FLAT_APPS="$FLAT_APPS net.mullvad.MullvadBrowser" ;;
             8)  FLAT_APPS="$FLAT_APPS io.github.ungoogled_software.ungoogled_chromium" ;;
             9)  DNF_APPS="$DNF_APPS filezilla" ;;
-            10) print_warning "Helium has no Fedora rpm or Flatpak - skipping." ;;
-            11) FLAT_APPS="$FLAT_APPS app.zen_browser.zen" ;;
-            12) FLAT_APPS="$FLAT_APPS com.rtosta.zapzap" ;;
-            13) FLAT_APPS="$FLAT_APPS com.discordapp.Discord" ;;
-            14) FLAT_APPS="$FLAT_APPS dev.vencord.Vesktop" ;;
-            15) DNF_APPS="$DNF_APPS telegram-desktop" ;;
-            16) FLAT_APPS="$FLAT_APPS org.ferdium.Ferdium" ;;
-            17) DNF_APPS="$DNF_APPS hugo" ;;
-            18) DNF_APPS="$DNF_APPS meld" ;;
-            19) NEED_VSCODIUM="yes"; DNF_APPS="$DNF_APPS codium" ;;
-            20) FLAT_APPS="$FLAT_APPS io.github.shiftey.Desktop" ;;
-            21) DNF_APPS="$DNF_APPS keepassxc" ;;
-            22) FLAT_APPS="$FLAT_APPS com.bitwarden.desktop" ;;
-            23) DNF_APPS="$DNF_APPS pass" ;;
-            24) DNF_APPS="$DNF_APPS gimp" ;;
-            25) DNF_APPS="$DNF_APPS krita" ;;
-            26) DNF_APPS="$DNF_APPS inkscape" ;;
-            27) DNF_APPS="$DNF_APPS mpv" ;;
-            28) DNF_APPS="$DNF_APPS amarok" ;;
-            29) FLAT_APPS="$FLAT_APPS com.spotify.Client" ;;
-            30) FLAT_APPS="$FLAT_APPS org.tenacityaudio.Tenacity" ;;
-            31) FLAT_APPS="$FLAT_APPS me.timschneeberger.jdsp4linux" ;;
-            32) DNF_APPS="$DNF_APPS easyeffects" ;;
-            33) FLAT_APPS="$FLAT_APPS com.makemkv.MakeMKV" ;;
-            34) DNF_APPS="$DNF_APPS kdenlive" ;;
-            35) FLAT_APPS="$FLAT_APPS org.avidemux.Avidemux" ;;
-            36) DNF_APPS="$DNF_APPS mkvtoolnix-gui" ;;
-            37) WANTS_LIBREOFFICE="yes" ;;
+            10) FLAT_APPS="$FLAT_APPS app.zen_browser.zen" ;;
+            11) FLAT_APPS="$FLAT_APPS com.rtosta.zapzap" ;;
+            12) FLAT_APPS="$FLAT_APPS com.discordapp.Discord" ;;
+            13) FLAT_APPS="$FLAT_APPS dev.vencord.Vesktop" ;;
+            14) DNF_APPS="$DNF_APPS telegram-desktop" ;;
+            15) FLAT_APPS="$FLAT_APPS org.ferdium.Ferdium" ;;
+            16) DNF_APPS="$DNF_APPS hugo" ;;
+            17) DNF_APPS="$DNF_APPS meld" ;;
+            18) NEED_VSCODIUM="yes"; DNF_APPS="$DNF_APPS codium" ;;
+            19) FLAT_APPS="$FLAT_APPS io.github.shiftey.Desktop" ;;
+            20) DNF_APPS="$DNF_APPS keepassxc" ;;
+            21) FLAT_APPS="$FLAT_APPS com.bitwarden.desktop" ;;
+            22) DNF_APPS="$DNF_APPS pass" ;;
+            23) DNF_APPS="$DNF_APPS gimp" ;;
+            24) DNF_APPS="$DNF_APPS krita" ;;
+            25) DNF_APPS="$DNF_APPS inkscape" ;;
+            26) DNF_APPS="$DNF_APPS mpv" ;;
+            27) DNF_APPS="$DNF_APPS amarok" ;;
+            28) FLAT_APPS="$FLAT_APPS com.spotify.Client" ;;
+            29) FLAT_APPS="$FLAT_APPS org.tenacityaudio.Tenacity" ;;
+            30) FLAT_APPS="$FLAT_APPS me.timschneeberger.jdsp4linux" ;;
+            31) DNF_APPS="$DNF_APPS easyeffects" ;;
+            32) FLAT_APPS="$FLAT_APPS com.makemkv.MakeMKV" ;;
+            33) DNF_APPS="$DNF_APPS kdenlive" ;;
+            34) FLAT_APPS="$FLAT_APPS org.avidemux.Avidemux" ;;
+            35) DNF_APPS="$DNF_APPS mkvtoolnix-gui" ;;
+            36) WANTS_LIBREOFFICE="yes" ;;
         esac
     done
 
@@ -673,6 +687,16 @@ customization_prompts() {
         # ones are skipped by install_group's individual retry.
         LO_PKGS="libreoffice libreoffice-langpack-${LO_CODE} hunspell hunspell-${LO_CODE}"
     fi
+
+    # ── Terra repo ────────────────────────────────────────────────────────────
+    echo ""
+    echo -e "${PURPLE}═══════════════════════════════════════════════════════════════════════${NC}"
+    echo -e "  ${CYAN}Terra repo (Fyra Labs) adds extra packages not in Fedora/RPMFusion.${NC}"
+    echo -e "  ${YELLOW}Note: requires GPG key trust; may show a prompt on first use.${NC}"
+    echo -e "${PURPLE}═══════════════════════════════════════════════════════════════════════${NC}"
+    read -p "$(echo -e "${GREEN}Enable Terra repo? ${NC}[${GREEN}y${NC}/${RED}N${NC}]: ")" -n 1 -r </dev/tty
+    echo ""
+    [[ $REPLY =~ ^[Yy]$ ]] && WANT_TERRA="yes"
 
     # ── Summary ───────────────────────────────────────────────────────────────
     echo ""
@@ -995,7 +1019,7 @@ term_init_sticky      # pin phase headers to the top; output scrolls below
 
 tune_dnf
 enable_rpmfusion
-enable_terra
+[[ -n "$WANT_TERRA" ]] && enable_terra
 setup_flatpak
 install_codecs
 install_plasma
