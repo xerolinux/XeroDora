@@ -748,16 +748,6 @@ setup_branding() {
         && print_success "/etc/lsb-release written!" \
         || print_warning "Could not write /etc/lsb-release (non-critical)"
 
-    print_step "Patching GRUB menu titles..."
-    local bls_patched=0
-    for f in /boot/loader/entries/*.conf; do
-        [[ -f "$f" ]] || continue
-        $SUDO_CMD sed -i 's/^title Fedora Linux/title XeroLinux Fedora/' "$f" && bls_patched=1
-    done
-    [[ $bls_patched -eq 1 ]] \
-        && print_success "BLS boot entries updated." \
-        || print_warning "No BLS entries found at /boot/loader/entries/ - skipping."
-
     if [[ -f /etc/default/grub ]]; then
         $SUDO_CMD sed -i \
             's|^GRUB_DISTRIBUTOR=.*|GRUB_DISTRIBUTOR="XeroLinux Fedora"|' \
@@ -767,13 +757,12 @@ setup_branding() {
     fi
 
     print_step "Regenerating grub.cfg..."
-    if $SUDO_CMD grub2-mkconfig -o /boot/grub2/grub.cfg 2>/dev/null; then
-        print_success "grub.cfg regenerated."
-    elif $SUDO_CMD grub2-mkconfig -o /boot/efi/EFI/fedora/grub.cfg 2>/dev/null; then
-        print_success "grub.cfg regenerated (EFI path)."
-    else
-        print_warning "grub2-mkconfig failed - reboot may still show old titles."
-    fi
+    local grub_ok=0
+    $SUDO_CMD grub2-mkconfig -o /boot/grub2/grub.cfg 2>/dev/null && grub_ok=1 || true
+    $SUDO_CMD grub2-mkconfig -o /boot/efi/EFI/fedora/grub.cfg 2>/dev/null && grub_ok=1 || true
+    [[ $grub_ok -eq 1 ]] \
+        && print_success "grub.cfg regenerated." \
+        || print_warning "grub2-mkconfig failed - reboot may still show old titles."
     echo ""
 }
 
@@ -824,6 +813,7 @@ prompt_layan_rice() {
         -e 's/^set -eu$/set -u/' \
         -e 's|sudo ./Grub.sh|echo "GRUB theme skipped on Fedora."|' \
         -e 's/^read -p "Enable fastfetch on terminal launch.*$/response=n  # fastfetch handled by xero-kde-fedora.sh/' \
+        -e 's#"width": [0-9]*,#"width": 13,#g' \
         "$tmp_dir/xero-layan-git/install.sh"
     print_success "Patched."
 
