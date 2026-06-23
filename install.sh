@@ -509,10 +509,15 @@ customization_prompts() {
     echo -e "  ${GREEN}11)${NC} ZapZap (WA) [F]     ${GREEN}12)${NC} Discord [F]         ${GREEN}13)${NC} Vesktop [F]"
     echo -e "  ${GREEN}14)${NC} Telegram            ${GREEN}15)${NC} Ferdium [F]"
     echo ""
+    echo -e "${RED}-- GAMING -----------------------------------------------------------------${NC}"
+    echo ""
+    echo -e "  ${RED}16)${NC} Steam               ${RED}17)${NC} Lutris [F]          ${RED}18)${NC} Heroic [F]"
+    echo -e "  ${RED}19)${NC} Bottles [F]         ${RED}20)${NC} ProtonPlus [F]"
+    echo ""
     echo -e "${YELLOW}-- OTHER / MISC -----------------------------------------------------------${NC}"
     echo ""
-    echo -e "  ${YELLOW}16)${NC} MPV                 ${YELLOW}17)${NC} Amarok              ${YELLOW}18)${NC} Kdenlive"
-    echo -e "  ${YELLOW}19)${NC} VSCodium [R]        ${YELLOW}20)${NC} Meld"
+    echo -e "  ${YELLOW}21)${NC} MPV                 ${YELLOW}22)${NC} Amarok              ${YELLOW}23)${NC} Kdenlive"
+    echo -e "  ${YELLOW}24)${NC} VSCodium [R]        ${YELLOW}25)${NC} Meld"
     echo ""
     read -p ">> Your choices: " user_input </dev/tty
 
@@ -538,11 +543,16 @@ customization_prompts() {
             13) FLAT_APPS="$FLAT_APPS dev.vencord.Vesktop" ;;
             14) DNF_APPS="$DNF_APPS telegram-desktop" ;;
             15) FLAT_APPS="$FLAT_APPS org.ferdium.Ferdium" ;;
-            16) DNF_APPS="$DNF_APPS mpv" ;;
-            17) DNF_APPS="$DNF_APPS amarok" ;;
-            18) DNF_APPS="$DNF_APPS kdenlive" ;;
-            19) NEED_VSCODIUM="yes"; DNF_APPS="$DNF_APPS codium" ;;
-            20) DNF_APPS="$DNF_APPS meld" ;;
+            16) DNF_APPS="$DNF_APPS steam" ;;
+            17) FLAT_APPS="$FLAT_APPS net.lutris.Lutris" ;;
+            18) FLAT_APPS="$FLAT_APPS com.heroicgameslauncher.hgl" ;;
+            19) FLAT_APPS="$FLAT_APPS com.usebottles.bottles" ;;
+            20) FLAT_APPS="$FLAT_APPS com.vysp3r.ProtonPlus" ;;
+            21) DNF_APPS="$DNF_APPS mpv" ;;
+            22) DNF_APPS="$DNF_APPS amarok" ;;
+            23) DNF_APPS="$DNF_APPS kdenlive" ;;
+            24) NEED_VSCODIUM="yes"; DNF_APPS="$DNF_APPS codium" ;;
+            25) DNF_APPS="$DNF_APPS meld" ;;
         esac
     done
 
