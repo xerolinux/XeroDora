@@ -385,26 +385,11 @@ enable_rpmfusion() {
 
 enable_terra() {
     print_phase "Enabling Terra repo (Fyra Labs)"
-
-    # --nogpgcheck bootstraps the install; terra-release depends on terra-gpg-keys
-    # which drops the key file terra.repo's gpgkey= points to, satisfying repo_gpgcheck.
     print_step "Installing terra-release..."
     # shellcheck disable=SC2016
-    local terra_url='https://repos.fyralabs.com/terra$releasever'
-    $SUDO_CMD dnf install -y --nogpgcheck \
-        --repofrompath "terra,${terra_url}" \
-        terra-release \
+    $SUDO_CMD dnf install -y --nogpgcheck --repofrompath 'terra,https://repos.fyralabs.com/terra$releasever' terra-release \
         && print_success "Terra repo enabled." \
-        || { print_warning "Terra repo install failed - continuing without it."; return 0; }
-
-    local key_path="/etc/pki/rpm-gpg/RPM-GPG-KEY-terra${FEDORA_VER}"
-    [[ -f "$key_path" ]] && $SUDO_CMD rpm --import "$key_path" 2>/dev/null || true
-
-    print_step "Refreshing repo metadata (RPMFusion + Terra)..."
-    $SUDO_CMD dnf clean metadata
-    $SUDO_CMD dnf -y makecache \
-        && print_success "Repo metadata refreshed!" \
-        || print_warning "Metadata refresh had errors - some packages may 404."
+        || print_warning "Terra repo install failed - continuing without it."
     echo ""
 }
 
