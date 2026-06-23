@@ -156,12 +156,7 @@ check_fedora() {
 
 # ── DNF wrapper: suppress 404 mirror noise ────────────────────────────────────
 _dnf() {
-    local tmp ret=0
-    tmp=$(mktemp)
-    $SUDO_CMD dnf "$@" 2>"$tmp" || ret=$?
-    grep -Ev "404|Failed to synchronize cache|Errors during downloading" "$tmp" >&2 || true
-    rm -f "$tmp"
-    return $ret
+    $SUDO_CMD dnf "$@" 2> >(grep -Ev "404|Failed to synchronize cache|Errors during downloading" >&2)
 }
 
 # ── UI: confirmation ──────────────────────────────────────────────────────────
