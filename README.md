@@ -16,9 +16,9 @@ curl -fsSL https://raw.githubusercontent.com/XeroLinux/XeroDora/main/install.sh 
 
 - RPMFusion (free + nonfree) + Flathub + Terra
 - KDE Plasma desktop (vanilla, Breeze Dark by default)
-- Faster dnf (20 parallel downloads, fastest mirrors)
+- Faster dnf (10 parallel downloads, fastest mirrors)
 - Multimedia codecs that just work
-- A handy set of utilities, fonts and dev tools
+- A handy set of apps & tools tools
 - An optional menu to pick extra apps
 - Plasma Login Manager + fastfetch on terminal start
 - Optional XeroLinux Rice install menu
