@@ -894,6 +894,37 @@ setup_branding() {
         | $SUDO_CMD tee /etc/lsb-release >/dev/null \
         && print_success "/etc/lsb-release written!" \
         || print_warning "Could not write /etc/lsb-release (non-critical)"
+
+    # Fix GRUB menu entries so they show "XeroLinux Fedora" instead of "Fedora Linux".
+    # Two parts: BLS entry files (current boot entries) + GRUB_DISTRIBUTOR (future kernels).
+    print_step "Patching GRUB menu titles..."
+    local bls_patched=0
+    for f in /boot/loader/entries/*.conf; do
+        [[ -f "$f" ]] || continue
+        $SUDO_CMD sed -i 's/^title Fedora Linux/title XeroLinux Fedora/' "$f" && bls_patched=1
+    done
+    [[ $bls_patched -eq 1 ]] \
+        && print_success "BLS boot entries updated." \
+        || print_warning "No BLS entries found at /boot/loader/entries/ - skipping."
+
+    # GRUB_DISTRIBUTOR controls the title for kernels installed in the future.
+    if [[ -f /etc/default/grub ]]; then
+        $SUDO_CMD sed -i \
+            's|^GRUB_DISTRIBUTOR=.*|GRUB_DISTRIBUTOR="XeroLinux Fedora"|' \
+            /etc/default/grub \
+            && print_success "GRUB_DISTRIBUTOR set." \
+            || print_warning "Could not patch /etc/default/grub."
+    fi
+
+    # Regenerate grub.cfg so the changes are picked up immediately.
+    print_step "Regenerating grub.cfg..."
+    if $SUDO_CMD grub2-mkconfig -o /boot/grub2/grub.cfg 2>/dev/null; then
+        print_success "grub.cfg regenerated."
+    elif $SUDO_CMD grub2-mkconfig -o /boot/efi/EFI/fedora/grub.cfg 2>/dev/null; then
+        print_success "grub.cfg regenerated (EFI path)."
+    else
+        print_warning "grub2-mkconfig failed - reboot may still show old titles."
+    fi
     echo ""
 }
 
