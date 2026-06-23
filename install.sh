@@ -353,15 +353,14 @@ set_dnf_opt() {
 }
 
 tune_dnf() {
-    print_phase "Tuning dnf (fastest mirrors, 20 parallel downloads)"
+    print_phase "Tuning dnf (fastest mirrors, 10 parallel downloads)"
     print_step "Patching /etc/dnf/dnf.conf..."
     $SUDO_CMD touch /etc/dnf/dnf.conf 2>/dev/null || true
-    # dnf5/librepo hard-caps at 20; higher values error on all metadata
-    set_dnf_opt max_parallel_downloads 20
+    set_dnf_opt max_parallel_downloads 10
     set_dnf_opt fastestmirror True
     set_dnf_opt defaultyes True
     set_dnf_opt keepcache False
-    print_success "dnf tuned - 20 parallel downloads, fastestmirror on."
+    print_success "dnf tuned - 10 parallel downloads, fastestmirror on."
     echo ""
 }
 
@@ -388,8 +387,10 @@ enable_terra() {
     print_step "Installing terra-release..."
     # shellcheck disable=SC2016
     $SUDO_CMD dnf install -y --nogpgcheck --repofrompath 'terra,https://repos.fyralabs.com/terra$releasever' terra-release \
-        && print_success "Terra repo enabled." \
-        || print_warning "Terra repo install failed - continuing without it."
+        || { print_warning "Terra repo install failed - continuing without it."; echo ""; return; }
+    print_step "Importing Terra GPG key..."
+    $SUDO_CMD dnf -y makecache --repo terra &>/dev/null || true
+    print_success "Terra repo enabled."
     echo ""
 }
 
@@ -822,9 +823,6 @@ prompt_layan_rice() {
     sed -i \
         -e 's/^set -eu$/set -u/' \
         -e 's|sudo ./Grub.sh|echo "GRUB theme skipped on Fedora."|' \
-        -e '/set_grub_option GRUB_TIMEOUT/d' \
-        -e '/set_grub_option GRUB_TIMEOUT_STYLE/d' \
-        -e '/set_grub_option GRUB_GFXMODE/d' \
         -e 's/^read -p "Enable fastfetch on terminal launch.*$/response=n  # fastfetch handled by xero-kde-fedora.sh/' \
         "$tmp_dir/xero-layan-git/install.sh"
     print_success "Patched."
