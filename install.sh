@@ -405,33 +405,40 @@ enable_rpmfusion() {
 
 enable_terra() {
     print_phase "Enabling Terra repo (Fyra Labs)"
-    print_step "Installing terra-release via --repofrompath..."
-    # shellcheck disable=SC2016
-    if ! $SUDO_CMD dnf install -y --nogpgcheck \
-        --repofrompath 'terra,https://repos.fyralabs.com/terra$releasever' \
-        terra-release; then
-        print_warning "Terra repo install failed - continuing without it."
-        return 0
-    fi
-    print_success "Terra repo enabled!"
 
-    # Import the GPG key terra-release dropped in /etc/pki/rpm-gpg/.
-    # Loop (not glob) so we handle zero-match gracefully; fall back to upstream
-    # URL if no file was found (different key filename or install was partial).
-    print_step "Importing Terra GPG key..."
-    local key_imported=0
-    for f in /etc/pki/rpm-gpg/RPM-GPG-KEY-terra*; do
-        [[ -f "$f" ]] || continue
-        $SUDO_CMD rpm --import "$f" 2>/dev/null && key_imported=1
-    done
-    if [[ $key_imported -eq 0 ]]; then
-        $SUDO_CMD rpm --import \
-            "https://repos.fyralabs.com/terra${FEDORA_VER}/pubkey.gpg" 2>/dev/null \
-            && key_imported=1
+    # Pre-import the Terra GPG key BEFORE any DNF operation. DNF5 checks the
+    # key for repomd.xml (repo_gpgcheck=1) before it can install terra-release,
+    # so we fetch it directly from upstream and trust it first. This avoids
+    # both the "Signing key not found" error and the need to use --nogpgcheck.
+    print_step "Pre-importing Terra GPG key..."
+    local key_ok=0
+    if curl -fsSL "https://repos.fyralabs.com/terra${FEDORA_VER}/key.asc" \
+            -o /tmp/terra-pubkey.gpg 2>/dev/null \
+        && $SUDO_CMD rpm --import /tmp/terra-pubkey.gpg 2>/dev/null; then
+        print_success "Terra GPG key imported."
+        key_ok=1
+    else
+        print_warning "Could not fetch Terra GPG key - will fall back to --nogpgcheck."
     fi
-    [[ $key_imported -eq 1 ]] \
-        && print_success "Terra GPG key imported." \
-        || print_warning "Terra GPG key import failed - makecache may still prompt."
+    rm -f /tmp/terra-pubkey.gpg
+
+    print_step "Installing terra-release..."
+    # shellcheck disable=SC2016
+    local terra_url='https://repos.fyralabs.com/terra$releasever'
+    if [[ $key_ok -eq 1 ]]; then
+        $SUDO_CMD dnf install -y \
+            --repofrompath "terra,${terra_url}" \
+            terra-release 2>/dev/null \
+            && print_success "Terra repo enabled!" \
+            || key_ok=0   # fall through to --nogpgcheck retry
+    fi
+    if [[ $key_ok -eq 0 ]]; then
+        $SUDO_CMD dnf install -y --nogpgcheck \
+            --repofrompath "terra,${terra_url}" \
+            terra-release \
+            && print_success "Terra repo enabled (fallback --nogpgcheck)." \
+            || { print_warning "Terra repo install failed - continuing without it."; return 0; }
+    fi
 
     print_step "Refreshing repo metadata (RPMFusion + Terra)..."
     $SUDO_CMD dnf clean metadata
