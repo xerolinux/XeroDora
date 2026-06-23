@@ -406,38 +406,49 @@ enable_rpmfusion() {
 enable_terra() {
     print_phase "Enabling Terra repo (Fyra Labs)"
 
-    # Pre-import the Terra GPG key BEFORE any DNF operation. DNF5 checks the
-    # key for repomd.xml (repo_gpgcheck=1) before it can install terra-release,
-    # so we fetch it directly from upstream and trust it first. This avoids
-    # both the "Signing key not found" error and the need to use --nogpgcheck.
-    print_step "Pre-importing Terra GPG key..."
+    # Fetch and store the Terra GPG key. DNF5's librepo verifies repomd.xml
+    # against the file path in terra.repo's gpgkey= field - rpm --import alone
+    # is not enough. We save the key to the expected path AND import it into
+    # the RPM database for package-level verification.
+    print_step "Fetching Terra GPG key..."
+    local key_path="/etc/pki/rpm-gpg/RPM-GPG-KEY-terra-${FEDORA_VER}"
     local key_ok=0
     if curl -fsSL "https://repos.fyralabs.com/terra${FEDORA_VER}/key.asc" \
-            -o /tmp/terra-pubkey.gpg 2>/dev/null \
-        && $SUDO_CMD rpm --import /tmp/terra-pubkey.gpg 2>/dev/null; then
-        print_success "Terra GPG key imported."
-        key_ok=1
-    else
-        print_warning "Could not fetch Terra GPG key - will fall back to --nogpgcheck."
+            -o /tmp/terra-key.asc 2>/dev/null; then
+        $SUDO_CMD cp /tmp/terra-key.asc "$key_path" 2>/dev/null && \
+        $SUDO_CMD rpm --import "$key_path" 2>/dev/null && \
+        key_ok=1 && print_success "Terra GPG key saved and imported."
     fi
-    rm -f /tmp/terra-pubkey.gpg
+    rm -f /tmp/terra-key.asc
+    [[ $key_ok -eq 0 ]] && \
+        print_warning "Could not fetch Terra GPG key - will use --nogpgcheck."
 
     print_step "Installing terra-release..."
     # shellcheck disable=SC2016
     local terra_url='https://repos.fyralabs.com/terra$releasever'
-    if [[ $key_ok -eq 1 ]]; then
-        $SUDO_CMD dnf install -y \
-            --repofrompath "terra,${terra_url}" \
-            terra-release 2>/dev/null \
-            && print_success "Terra repo enabled!" \
-            || key_ok=0   # fall through to --nogpgcheck retry
-    fi
-    if [[ $key_ok -eq 0 ]]; then
-        $SUDO_CMD dnf install -y --nogpgcheck \
-            --repofrompath "terra,${terra_url}" \
-            terra-release \
-            && print_success "Terra repo enabled (fallback --nogpgcheck)." \
-            || { print_warning "Terra repo install failed - continuing without it."; return 0; }
+    $SUDO_CMD dnf install -y --nogpgcheck \
+        --repofrompath "terra,${terra_url}" \
+        terra-release \
+        && print_success "Terra repo enabled." \
+        || { print_warning "Terra repo install failed - continuing without it."; return 0; }
+
+    # terra.repo ships with repo_gpgcheck=1 but points to a key file that
+    # terra-gpg-keys (a separate package) would normally install. We already
+    # saved the key to the correct path above; also patch the .repo file to
+    # point to it explicitly so DNF5 librepo can verify repomd.xml correctly.
+    # If our key fetch failed, disable repo_gpgcheck entirely as a fallback.
+    if [[ -f /etc/yum.repos.d/terra.repo ]]; then
+        if [[ $key_ok -eq 1 ]]; then
+            $SUDO_CMD sed -i \
+                "s|^gpgkey=.*|gpgkey=file://${key_path}|" \
+                /etc/yum.repos.d/terra.repo 2>/dev/null || true
+            print_success "terra.repo gpgkey= pointed to local key file."
+        else
+            $SUDO_CMD sed -i \
+                's/^repo_gpgcheck=1/repo_gpgcheck=0/' \
+                /etc/yum.repos.d/terra.repo 2>/dev/null || true
+            print_warning "repo_gpgcheck disabled (key unavailable)."
+        fi
     fi
 
     print_step "Refreshing repo metadata (RPMFusion + Terra)..."
