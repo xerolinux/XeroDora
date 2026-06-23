@@ -763,6 +763,21 @@ setup_branding() {
     [[ $grub_ok -eq 1 ]] \
         && print_success "grub.cfg regenerated." \
         || print_warning "grub2-mkconfig failed - reboot may still show old titles."
+
+    print_step "Patching grub.cfg entries..."
+    for grubcfg in /boot/grub2/grub.cfg /boot/efi/EFI/fedora/grub.cfg; do
+        $SUDO_CMD test -f "$grubcfg" 2>/dev/null || continue
+        $SUDO_CMD sed -i 's/Fedora Linux/XeroLinux Fedora/g' "$grubcfg"
+    done
+
+    print_step "Patching BLS boot entries..."
+    local bls_patched=0
+    while IFS= read -r f; do
+        $SUDO_CMD sed -i 's/^title Fedora Linux/title XeroLinux Fedora/' "$f" && bls_patched=1
+    done < <($SUDO_CMD find /boot/loader/entries -name "*.conf" 2>/dev/null)
+    [[ $bls_patched -eq 1 ]] \
+        && print_success "BLS boot entries updated." \
+        || print_warning "No BLS entries found - grub.cfg patch covers this."
     echo ""
 }
 
@@ -813,7 +828,6 @@ prompt_layan_rice() {
         -e 's/^set -eu$/set -u/' \
         -e 's|sudo ./Grub.sh|echo "GRUB theme skipped on Fedora."|' \
         -e 's/^read -p "Enable fastfetch on terminal launch.*$/response=n  # fastfetch handled by xero-kde-fedora.sh/' \
-        -e 's#"width": [0-9]*,#"width": 13,#g' \
         "$tmp_dir/xero-layan-git/install.sh"
     print_success "Patched."
 
