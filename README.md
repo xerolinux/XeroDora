@@ -12,6 +12,10 @@ Install **Base Fedora** using the [**Fedora Everything**](https://fedoraproject.
 curl -fsSL https://urls.xerolinux.xyz/XeroDora | bash
 ```
 
+Important Note :
+
+> Use wired Internet as Fedora doesn't offer many WiFI drivers out the box post-base install. Not a Xero issue but a Fedora one. If you can't use Ethernet, try USB-Thethering. With that in mind install should go smoothly.
+
 ## What you get
 
 - RPMFusion (free + nonfree) + Flathub + Terra
