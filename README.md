@@ -6,7 +6,7 @@ Turn a fresh **Fedora** install into a ready-to-use **KDE Plasma** desktop, one 
 
 ## Run it
 
-Install **Base Fedora** using the [**Fedora Everything**](https://fedoraproject.org/misc/#everything) ISO and once on the TTY, login and run the following command.
+Install **Base Fedora** using the [**Fedora Everything**](https://fedoraproject.org/misc/#everything) ISO. Just select locale, create user and set password, select Drive to install system on, enable & set root password (Optional), now hit next and watch it do its thing. Once it's done reboot and you will be on the TTY, login and run the following command :
 
 ```bash
 curl -fsSL https://urls.xerolinux.xyz/XeroDora | bash
