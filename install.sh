@@ -391,7 +391,7 @@ enable_terra() {
     print_phase "Enabling Terra repo (Fyra Labs)"
     print_step "Installing terra-release..."
     # shellcheck disable=SC2016
-    _dnf install -y --nogpgcheck --repofrompath 'terra,https://repos.fyralabs.com/terra$releasever' terra-release \
+    _dnf install -y --nogpgcheck --repofrompath 'terra,https://repos.fyralabs.com/terra$releasever' terra-release terra-gpg-keys \
         || { print_warning "Terra repo install failed - continuing without it."; echo ""; return; }
     print_step "Importing Terra GPG key..."
     _dnf -y makecache --repo terra &>/dev/null || true
