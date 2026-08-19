@@ -488,7 +488,7 @@ install_utilities() {
         python3-pyaudio
 
     install_group "Language Servers" \
-        nodejs-bash-language-server || true
+        nodejs-bash-language-server
 
     echo ""
 }
@@ -507,8 +507,7 @@ customization_prompts() {
     echo ""
     echo -e "  ${CYAN} 1)${NC} Floorp [F]          ${CYAN} 2)${NC} Firefox             ${CYAN} 3)${NC} Brave [R]"
     echo -e "  ${CYAN} 4)${NC} LibreWolf [R]       ${CYAN} 5)${NC} Vivaldi [R]         ${CYAN} 6)${NC} Tor Browser"
-    echo -e "  ${CYAN} 7)${NC} Mullvad Browser [F] ${CYAN} 8)${NC} Ungoogled Chrom [F] ${CYAN} 9)${NC} FileZilla"
-    echo -e "  ${CYAN}10)${NC} Zen Browser [F]"
+    echo -e "  ${CYAN} 7)${NC} Mullvad Browser [F] ${CYAN} 8)${NC} Ungoogled Chrom [F] ${CYAN}10)${NC} Zen Browser [F]"
     echo ""
     echo -e "${GREEN}-- SOCIAL & COMMUNICATION -------------------------------------------------${NC}"
     echo ""
@@ -523,7 +522,7 @@ customization_prompts() {
     echo -e "${YELLOW}-- OTHER / MISC -----------------------------------------------------------${NC}"
     echo ""
     echo -e "  ${YELLOW}21)${NC} MPV                 ${YELLOW}22)${NC} Amarok              ${YELLOW}23)${NC} Kdenlive"
-    echo -e "  ${YELLOW}24)${NC} VSCodium [R]        ${YELLOW}25)${NC} Meld"
+    echo -e "  ${YELLOW}24)${NC} VSCodium [R]        ${YELLOW}25)${NC} Meld                ${YELLOW} 9)${NC} FileZilla"
     echo ""
     read -p ">> Your choices: " user_input </dev/tty
 
@@ -691,17 +690,19 @@ setup_fastfetch_hook() {
 setup_login_manager() {
     print_phase "Setting up Plasma Login Manager + Breeze Dark"
     print_step "Installing plasma-login-manager..."
-    _dnf install -y plasma-login-manager \
-        || { print_error "Failed to install plasma-login-manager!"; exit 1; }
-    print_success "Plasma Login Manager installed!"
-    echo ""
-
-    print_step "Enabling plasmalogin.service..."
-    $SUDO_CMD systemctl disable gdm.service &>/dev/null || true
-    $SUDO_CMD systemctl disable sddm.service &>/dev/null || true
-    $SUDO_CMD systemctl enable plasmalogin.service \
-        && print_success "plasmalogin.service enabled!" \
-        || { print_error "Failed to enable plasmalogin.service!"; exit 1; }
+    if _dnf install -y plasma-login-manager && $SUDO_CMD systemctl enable plasmalogin.service &>/dev/null; then
+        print_success "Plasma Login Manager installed and enabled!"
+        $SUDO_CMD systemctl disable gdm.service &>/dev/null || true
+        $SUDO_CMD systemctl disable sddm.service &>/dev/null || true
+    else
+        print_warning "plasma-login-manager unavailable - falling back to sddm."
+        $SUDO_CMD systemctl disable gdm.service &>/dev/null || true
+        if _dnf install -y sddm && $SUDO_CMD systemctl enable sddm.service &>/dev/null; then
+            print_success "sddm installed and enabled!"
+        else
+            print_error "No login manager could be installed/enabled - fix manually before rebooting!"
+        fi
+    fi
     echo ""
 
     print_step "Setting Breeze Dark as default Plasma theme..."
@@ -834,6 +835,10 @@ prompt_layan_rice() {
         -e 's|sudo ./Grub.sh|echo "GRUB theme skipped on Fedora."|' \
         -e 's/^read -p "Enable fastfetch on terminal launch.*$/response=n  # fastfetch handled by xero-kde-fedora.sh/' \
         "$tmp_dir/xero-layan-git/install.sh"
+    if grep -q '\./Grub\.sh' "$tmp_dir/xero-layan-git/install.sh"; then
+        print_error "Grub.sh patch didn't apply (upstream script changed) - aborting Layan rice to avoid running Arch grub tooling on Fedora."
+        rm -rf "$tmp_dir"; echo ""; return 0
+    fi
     print_success "Patched."
 
     local exit_code=0
@@ -911,8 +916,10 @@ prompt_layan_rice
 setup_fastfetch_hook
 show_completion
 
-# Self-destruct only when run as a downloaded file (not via curl | bash, where
-# SCRIPT_PATH is empty or /dev/fd/*).
-if [[ -n "$SCRIPT_PATH" && -f "$SCRIPT_PATH" && "$SCRIPT_PATH" != /dev/* && "$SCRIPT_PATH" != /proc/* ]]; then
+# Self-destruct only when run as a standalone downloaded file - not via
+# curl | bash (SCRIPT_PATH empty or /dev/fd/*) and not from a git checkout
+# (where deleting a tracked file would corrupt the working tree).
+if [[ -n "$SCRIPT_PATH" && -f "$SCRIPT_PATH" && "$SCRIPT_PATH" != /dev/* && "$SCRIPT_PATH" != /proc/* ]] \
+    && ! git -C "$(dirname "$SCRIPT_PATH")" rev-parse --is-inside-work-tree &>/dev/null; then
     rm -f "$SCRIPT_PATH"
 fi
