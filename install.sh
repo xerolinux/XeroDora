@@ -823,8 +823,8 @@ prompt_layan_rice() {
 
     local tmp_dir
     tmp_dir="$(mktemp -d)"
-    print_step "Cloning xero-layan-git..."
-    if ! git clone https://github.com/xerolinux/xero-layan-git "$tmp_dir/xero-layan-git"; then
+    print_step "Cloning fedora-layan..."
+    if ! git clone https://github.com/xerolinux/fedora-layan "$tmp_dir/fedora-layan"; then
         print_error "Clone failed - skipping Layan rice."
         rm -rf "$tmp_dir"; echo ""; return 0
     fi
@@ -832,29 +832,24 @@ prompt_layan_rice() {
     print_step "Patching install.sh for Fedora..."
     sed -i \
         -e 's/^set -eu$/set -u/' \
-        -e 's|sudo ./Grub.sh|echo "GRUB theme skipped on Fedora."|' \
         -e 's/^read -p "Enable fastfetch on terminal launch.*$/response=n  # fastfetch handled by xero-kde-fedora.sh/' \
-        "$tmp_dir/xero-layan-git/install.sh"
-    if grep -q '\./Grub\.sh' "$tmp_dir/xero-layan-git/install.sh"; then
-        print_error "Grub.sh patch didn't apply (upstream script changed) - aborting Layan rice to avoid running Arch grub tooling on Fedora."
-        rm -rf "$tmp_dir"; echo ""; return 0
-    fi
+        "$tmp_dir/fedora-layan/install.sh"
     print_success "Patched."
 
     local exit_code=0
     if [[ "${EUID:-0}" -ne 0 ]]; then
         print_step "Running Layan install.sh..."
-        ( cd "$tmp_dir/xero-layan-git" && bash install.sh ) </dev/tty \
+        ( cd "$tmp_dir/fedora-layan" && bash install.sh ) </dev/tty \
             || exit_code=$?
     elif [[ -n "$real_user" ]]; then
         print_step "Running Layan install.sh as ${real_user}..."
         chown -R "${real_user}:${real_user}" "$tmp_dir"
         sudo -H -u "$real_user" bash -c \
-            "cd '$tmp_dir/xero-layan-git' && bash install.sh" </dev/tty \
+            "cd '$tmp_dir/fedora-layan' && bash install.sh" </dev/tty \
             || exit_code=$?
     else
         print_step "Running Layan install.sh as root..."
-        ( cd "$tmp_dir/xero-layan-git" && bash install.sh ) </dev/tty \
+        ( cd "$tmp_dir/fedora-layan" && bash install.sh ) </dev/tty \
             || exit_code=$?
     fi
 
