@@ -524,6 +524,7 @@ customization_prompts() {
     echo ""
     echo -e "  ${YELLOW}21)${NC} MPV                 ${YELLOW}22)${NC} Amarok              ${YELLOW}23)${NC} Kdenlive"
     echo -e "  ${YELLOW}24)${NC} VSCodium [R]        ${YELLOW}25)${NC} Meld"
+    echo -e "  ${YELLOW}26)${NC} EasyEffects (+ LV2 plugins)"
     echo ""
     read -p ">> Your choices: " user_input </dev/tty
 
@@ -559,6 +560,7 @@ customization_prompts() {
             23) DNF_APPS="$DNF_APPS kdenlive" ;;
             24) NEED_VSCODIUM="yes"; DNF_APPS="$DNF_APPS codium" ;;
             25) DNF_APPS="$DNF_APPS meld" ;;
+            26) DNF_APPS="$DNF_APPS easyeffects calf lsp-plugins-lv2 lv2-mdala-plugins lv2-x42-plugins lv2-zam-plugins" ;;
         esac
     done
 
